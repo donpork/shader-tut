@@ -1,6 +1,11 @@
-import { useRef, useState } from "react";
-import type { SceneData } from "./lib/sceneData";
+import { useLayoutEffect, useRef, useState } from "react";
 import { ResizableGridOverlay } from "./components/ResizableGridOverlay";
+import {
+  makeDefaultCellLabels,
+  resizeLabelGrid,
+  type CellLabelGrid,
+} from "./lib/cellLabelGrid";
+import type { SceneData } from "./lib/sceneData";
 import "./App.css";
 
 const COL_ROW_MIN = 1;
@@ -13,6 +18,15 @@ function App() {
   });
   const [cols, setCols] = useState(4);
   const [rows, setRows] = useState(4);
+  const [cellLabels, setCellLabels] = useState<CellLabelGrid>(() =>
+    makeDefaultCellLabels(4, 4)
+  );
+
+  useLayoutEffect(() => {
+    setCellLabels((prev) =>
+      resizeLabelGrid(prev, cols, rows, (row, col) => `R${row + 1}C${col + 1}`)
+    );
+  }, [cols, rows]);
 
   const onColRow = (key: "cols" | "rows", value: number) => {
     const v = Math.min(
@@ -57,7 +71,12 @@ function App() {
         </div>
       </header>
       <div className="scene">
-        <ResizableGridOverlay dataRef={dataRef} cols={cols} rows={rows} />
+        <ResizableGridOverlay
+          dataRef={dataRef}
+          cols={cols}
+          rows={rows}
+          cellLabels={cellLabels}
+        />
       </div>
     </div>
   );

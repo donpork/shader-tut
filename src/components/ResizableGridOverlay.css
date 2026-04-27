@@ -1,15 +1,31 @@
+/**
+ * Hit regions: V/H = 10px (±5px from edge), corner = 14px (±7px from center).
+ * Gutters are floored so that inset is never less than the half-handle, so the split layer
+ * (z-index above cells) does not sit over the margin or the inner .resizable-grid__cell-surface.
+ */
 .resizable-grid {
+  --split-half-edge: 5px; /* 10 / 2 */
+  --split-half-corner: 7px; /* 14 / 2 */
+  --split-inset-min: max(
+    var(--split-half-edge),
+    var(--split-half-corner)
+  );
   position: relative;
   box-sizing: border-box;
+  width: 100%;
   min-width: 0;
+  /* stretch to fill the flex parent even though all children are position:absolute */
   min-height: 0;
+  flex: 1 1 0;
+  align-self: stretch;
 }
 
 .resizable-grid--fill {
-  width: 100%;
   height: 100%;
-  flex: 1 1 auto;
+  max-height: 100%;
+  flex: 1 1 0;
   align-self: stretch;
+  min-height: 0;
 }
 
 .resizable-grid__canvas-host {
@@ -24,11 +40,77 @@
   pointer-events: none;
 }
 
+/*
+ * Gutter: space between the cell border and the inner rounded container = same 2e/1e (rem floors) for every cell.
+ * Min width/height (2e+text+2e, 1e+text+1e) apply to the inner face; vars inherit to the container.
+ */
 .resizable-grid__cell {
+  container-type: size;
   box-sizing: border-box;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
+  /* Never smaller than em/rem floors or split handle reach into the cell content box */
+  --gutter-x: max(0.5rem, 2em, var(--split-inset-min));
+  --gutter-y: max(0.5rem, 1em, var(--split-inset-min));
+  /* Only the gap *around* the inner container; no cell border (grid = red split lines) */
+  padding: var(--gutter-y) var(--gutter-x);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  border: none;
+  border-radius: 0;
   background: transparent;
+  font-size: clamp(0.7rem, 5cqmin, 1rem);
+  line-height: 1.35;
+  /* overflow:hidden would zero the grid item's content-based min; tracks could shrink below
+     the padded label box and clip. Surface clips the rounded frame; the cell may overflow. */
+  overflow: visible;
+  min-width: min-content;
+  min-height: min-content;
+}
+
+/* Fills the cell content box; establishes a size container so 50cqh = half this rect’s height. */
+.resizable-grid__cell-chrome {
+  container-type: size;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: min-content;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Inner rounded "container": corner radius = half the rect height; min w/h; label padding insets. */
+.resizable-grid__cell-surface {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: max(calc(2 * var(--gutter-x)), min-content);
+  min-height: max(calc(2 * var(--gutter-y)), min-content);
+  padding: var(--gutter-y) var(--gutter-x);
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50cqh;
+  border: none;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+
+.resizable-grid__cell-text {
+  display: inline-block;
+  flex-shrink: 0;
+  white-space: nowrap;
+  width: max-content;
+  max-width: none;
+  overflow: visible;
+  /* Single-line intrinsic size: no wrap, no hyphenation, no forced shrink */
+  text-align: center;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.resizable-grid__cell-text--empty {
+  opacity: 0;
 }
 
 /* Splitter layer: internal edges and corners (outer grid follows the scene) */
@@ -45,45 +127,97 @@
   margin: 0;
   border: none;
   pointer-events: auto;
-  background: rgba(120, 160, 255, 0.2);
-  border-radius: 2px;
+  background: transparent;
+  border-radius: 0;
   touch-action: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
 }
 
-.resizable-grid__split:hover,
-.resizable-grid__split:focus-visible {
-  background: rgba(160, 190, 255, 0.45);
-  outline: none;
-}
-
-/* Vertical: between columns */
+/* Vertical: 1px red line; `left` in px = seam x; only translateX(-50%) centers — no margin (avoid double -5px) */
 .resizable-grid__split--v {
   top: 0;
   width: 10px;
   height: 100%;
-  margin-left: -5px;
+  margin: 0;
   transform: translateX(-50%);
   cursor: ew-resize;
 }
+.resizable-grid__split--v::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+  background: #f00;
+  pointer-events: none;
+}
+.resizable-grid__split--v:hover::before,
+.resizable-grid__split--v:focus-visible::before {
+  background: #ff4444;
+  box-shadow: 0 0 0 0.5px #f00;
+}
 
-/* Horizontal: between rows */
+/* Horizontal: 1px red line; `top` in px = seam y; no margin (avoid double -5px) */
 .resizable-grid__split--h {
   left: 0;
   width: 100%;
   height: 10px;
-  margin-top: -5px;
+  margin: 0;
   transform: translateY(-50%);
   cursor: ns-resize;
 }
+.resizable-grid__split--h::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  margin-top: -0.5px;
+  background: #f00;
+  pointer-events: none;
+}
+.resizable-grid__split--h:hover::before,
+.resizable-grid__split--h:focus-visible::before {
+  background: #ff4444;
+  box-shadow: 0 0 0.5px 0 #f00;
+}
 
-/* Interior four-way junctions */
+/* Interior four-way junctions: center of button = intersection of V/H line centers (no double offset) */
 .resizable-grid__split--corner {
-  width: 14px;
-  height: 14px;
-  margin-left: -7px;
-  margin-top: -7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0;
   transform: translate(-50%, -50%);
   cursor: nwse-resize;
   z-index: 3;
-  border-radius: 3px;
+  border-radius: 2px;
+  padding: 0;
+}
+.resizable-grid__split--corner:hover,
+.resizable-grid__split--corner:focus-visible {
+  background: rgba(255, 0, 0, 0.12);
+  outline: none;
+}
+
+.resizable-grid__split-plus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+  pointer-events: none;
+  font-family: system-ui, sans-serif;
 }
