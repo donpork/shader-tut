@@ -1,0 +1,89 @@
+.resizable-grid {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+}
+
+.resizable-grid--fill {
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  align-self: stretch;
+}
+
+.resizable-grid__canvas-host {
+  z-index: 0;
+}
+
+.resizable-grid__cells {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  pointer-events: none;
+}
+
+.resizable-grid__cell {
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  background: transparent;
+}
+
+/* Splitter layer: internal edges and corners (outer grid follows the scene) */
+.resizable-grid__splits {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.resizable-grid__split {
+  position: absolute;
+  padding: 0;
+  margin: 0;
+  border: none;
+  pointer-events: auto;
+  background: rgba(120, 160, 255, 0.2);
+  border-radius: 2px;
+  touch-action: none;
+}
+
+.resizable-grid__split:hover,
+.resizable-grid__split:focus-visible {
+  background: rgba(160, 190, 255, 0.45);
+  outline: none;
+}
+
+/* Vertical: between columns */
+.resizable-grid__split--v {
+  top: 0;
+  width: 10px;
+  height: 100%;
+  margin-left: -5px;
+  transform: translateX(-50%);
+  cursor: ew-resize;
+}
+
+/* Horizontal: between rows */
+.resizable-grid__split--h {
+  left: 0;
+  width: 100%;
+  height: 10px;
+  margin-top: -5px;
+  transform: translateY(-50%);
+  cursor: ns-resize;
+}
+
+/* Interior four-way junctions */
+.resizable-grid__split--corner {
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  margin-top: -7px;
+  transform: translate(-50%, -50%);
+  cursor: nwse-resize;
+  z-index: 3;
+  border-radius: 3px;
+}
