@@ -18,16 +18,6 @@ export function createGridShaderSketch(
     return [x / len, y / len];
   };
 
-  const labelForRect = (labels: string[][], id: string): string => {
-    const [rowRaw, colRaw] = id.split("-");
-    const row = Number(rowRaw);
-    const col = Number(colRaw);
-    if (Number.isFinite(row) && Number.isFinite(col)) {
-      return labels[row]?.[col] ?? `R${row + 1}C${col + 1}`;
-    }
-    return "";
-  };
-
   return (p: p5) => {
     let sh: p5.Shader;
     let bgLayer: p5.Graphics;
@@ -38,12 +28,18 @@ export function createGridShaderSketch(
       bgLayer.noStroke();
       bgLayer.fill(10, 12, 18, 160);
       bgLayer.rect(0, 0, bgLayer.width, bgLayer.height);
-      bgLayer.textAlign(bgLayer.CENTER, bgLayer.CENTER);
+      bgLayer.textAlign(p.CENTER, p.CENTER);
+      bgLayer.textSize(16);
+      const cols = Math.max(1, dataRef.current.cellLabels[0]?.length ?? 1);
       for (let i = 0; i < d.containerRects.length; i += 1) {
         const c = d.containerRects[i]!;
-        const label = labelForRect(d.cellLabels, c.id);
+        const idMatch = /^(\d+)-(\d+)$/.exec(c.id);
+        const row = idMatch ? Number(idMatch[1]) : Math.floor(i / cols);
+        const col = idMatch ? Number(idMatch[2]) : i % cols;
+        const label =
+          d.cellLabels[row]?.[col] ??
+          `R${Math.max(0, row) + 1}C${Math.max(0, col) + 1}`;
         bgLayer.fill(234, 244, 255, 225);
-        bgLayer.textSize(Math.max(12, Math.min(c.w, c.h) * 0.18));
         bgLayer.text(label, c.x + c.w * 0.5, c.y + c.h * 0.5);
       }
     };
@@ -66,9 +62,7 @@ export function createGridShaderSketch(
         bgLayer.resizeCanvas(p.width, p.height);
       }
       drawBackgroundLayer();
-      p.clear();
-      p.imageMode(p.CORNER);
-      p.image(bgLayer, -p.width * 0.5, -p.height * 0.5, p.width, p.height);
+      p.background(10, 12, 18);
       if (!d.containerRects.length) return;
       p.ortho(-p.width * 0.5, p.width * 0.5, -p.height * 0.5, p.height * 0.5, -1000, 1000);
       const gp = d.glassParams;
@@ -92,6 +86,11 @@ export function createGridShaderSketch(
       sh.setUniform("uRimIntensity", gp.rimIntensity);
       sh.setUniform("uRefractionStrength", gp.refractionStrength);
       sh.setUniform("uEdgeSoftness", gp.edgeSoftness);
+      sh.setUniform("uBoxLightEnabled", gp.boxLightEnabled ? 1 : 0);
+      sh.setUniform("uBoxLightIntensity", gp.boxLightIntensity);
+      sh.setUniform("uBoxLightSoftness", gp.boxLightSoftness);
+      sh.setUniform("uBoxLightSize", gp.boxLightSize);
+      sh.setUniform("uBoxLightPos", gp.boxLightPosXY);
       for (let i = 0; i < d.containerRects.length; i += 1) {
         const c = d.containerRects[i]!;
         sh.setUniform("uCellRect", [c.x, c.y, c.w, c.h]);

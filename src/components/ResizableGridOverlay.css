@@ -58,13 +58,14 @@
   border: none;
   border-radius: 0;
   background: transparent;
-  font-size: clamp(0.7rem, 5cqmin, 1rem);
+  /* Keep label metrics stable; do not scale text with cell size. */
+  font-size: 1rem;
   line-height: 1.35;
   /* overflow:hidden would zero the grid item's content-based min; tracks could shrink below
      the padded label box and clip. Surface clips the rounded frame; the cell may overflow. */
   overflow: visible;
   min-width: max(calc(2 * var(--gutter-x)), min-content);
-  min-height: min-content;
+  min-height: max(calc(2 * var(--gutter-y)), min-content);
 }
 
 /* Fills the cell content box; establishes a size container so 50cqh = half this rect’s height. */
@@ -72,7 +73,7 @@
   container-type: size;
   box-sizing: border-box;
   min-width: max(calc(2 * var(--gutter-x)), min-content);
-  min-height: min-content;
+  min-height: max(calc(2 * var(--gutter-y)), min-content);
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
@@ -102,6 +103,7 @@
   flex-shrink: 0;
   white-space: nowrap;
   width: max-content;
+  min-width: max-content;
   max-width: none;
   overflow: visible;
   /* Single-line intrinsic size: no wrap, no hyphenation, no forced shrink */
@@ -216,6 +218,6 @@
 }
 
 .resizable-grid__debug-rect--grid {
-  border: 1px dashed rgba(255, 201, 79, 0.95);
-  box-shadow: inset 0 0 0 1px rgba(255, 201, 79, 0.2);
+  border: 1px solid #f00;
+  box-shadow: none;
 }

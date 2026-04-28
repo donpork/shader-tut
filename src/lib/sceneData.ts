@@ -16,6 +16,11 @@ export type GlassParams = {
   rimIntensity: number;
   refractionStrength: number;
   edgeSoftness: number;
+  boxLightEnabled: boolean;
+  boxLightIntensity: number;
+  boxLightSoftness: number;
+  boxLightSize: [number, number];
+  boxLightPosXY: [number, number];
 };
 
 export type SceneData = {

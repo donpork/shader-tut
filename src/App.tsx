@@ -11,15 +11,20 @@ import "./App.css";
 const COL_ROW_MIN = 1;
 const COL_ROW_MAX = 12;
 const GLASS_DEFAULTS: GlassParams = {
-  lightDirXY: [-0.75, -0.6],
-  lightFollowPointer: false,
-  pointerLightMix: 0.35,
-  specularPower: 72,
-  specularIntensity: 1.0,
-  rimPower: 3.2,
-  rimIntensity: 0.6,
-  refractionStrength: 0.02,
-  edgeSoftness: 1.4,
+  lightDirXY: [-1.0, -1.0],
+  lightFollowPointer: true,
+  pointerLightMix: 1.0,
+  specularPower: 45,
+  specularIntensity: 0.5,
+  rimPower: 8.0,
+  rimIntensity: 0.01,
+  refractionStrength: 0.1,
+  edgeSoftness: 4.0,
+  boxLightEnabled: true,
+  boxLightIntensity: 0.5,
+  boxLightSoftness: 0.8,
+  boxLightSize: [0.5, 0.5],
+  boxLightPosXY: [0.0, 0.0],
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -40,7 +45,7 @@ function App() {
   const [glassParams, setGlassParams] = useState<GlassParams>(GLASS_DEFAULTS);
   const [cellLabels, setCellLabels] = useState<CellLabelGrid>(initialLabels);
   const [showDebugShader, setShowDebugShader] = useState(false);
-  const [showDebugGrid, setShowDebugGrid] = useState(false);
+  const [showDebugGrid, setShowDebugGrid] = useState(true);
 
   useLayoutEffect(() => {
     setCellLabels((prev) =>
@@ -71,6 +76,8 @@ function App() {
       if (!Number.isFinite(n)) return;
       setGlassParams((prev) => {
         if (key === "lightDirXY" || key === "lightFollowPointer") return prev;
+        if (key === "boxLightSize" || key === "boxLightPosXY") return prev;
+        if (key === "boxLightEnabled") return prev;
         if (key === "pointerLightMix") {
           return { ...prev, pointerLightMix: clamp(n, 0.0, 1.0) };
         }
@@ -87,7 +94,13 @@ function App() {
           return { ...prev, rimIntensity: clamp(n, 0.0, 2.0) };
         }
         if (key === "refractionStrength") {
-          return { ...prev, refractionStrength: clamp(n, 0.0, 0.08) };
+          return { ...prev, refractionStrength: clamp(n, 0.0, 32.0) };
+        }
+        if (key === "boxLightIntensity") {
+          return { ...prev, boxLightIntensity: clamp(n, 0.0, 2.0) };
+        }
+        if (key === "boxLightSoftness") {
+          return { ...prev, boxLightSoftness: clamp(n, 0.01, 0.8) };
         }
         return { ...prev, edgeSoftness: clamp(n, 0.2, 4.0) };
       });
@@ -106,6 +119,31 @@ function App() {
   const onLightFollowPointer = (e: ChangeEvent<HTMLInputElement>) => {
     const checked = e.target.checked;
     setGlassParams((prev) => ({ ...prev, lightFollowPointer: checked }));
+  };
+
+  const onBoxLightEnabled = (e: ChangeEvent<HTMLInputElement>) => {
+    const checked = e.target.checked;
+    setGlassParams((prev) => ({ ...prev, boxLightEnabled: checked }));
+  };
+
+  const onBoxLightSize = (axis: 0 | 1) => (e: ChangeEvent<HTMLInputElement>) => {
+    const n = Number(e.target.value);
+    if (!Number.isFinite(n)) return;
+    setGlassParams((prev) => {
+      const boxLightSize: [number, number] = [...prev.boxLightSize];
+      boxLightSize[axis] = clamp(n, 0.05, 0.8);
+      return { ...prev, boxLightSize };
+    });
+  };
+
+  const onBoxLightPos = (axis: 0 | 1) => (e: ChangeEvent<HTMLInputElement>) => {
+    const n = Number(e.target.value);
+    if (!Number.isFinite(n)) return;
+    setGlassParams((prev) => {
+      const boxLightPosXY: [number, number] = [...prev.boxLightPosXY];
+      boxLightPosXY[axis] = clamp(n, 0.0, 1.0);
+      return { ...prev, boxLightPosXY };
+    });
   };
 
   const onDebugShader = (e: ChangeEvent<HTMLInputElement>) => {
@@ -230,9 +268,9 @@ function App() {
             Refraction
             <input
               type="number"
-              step="0.001"
+              step="0.1"
               min="0"
-              max="0.08"
+              max="32"
               value={glassParams.refractionStrength}
               onChange={onGlassParam("refractionStrength")}
             />
@@ -246,6 +284,80 @@ function App() {
               max="4"
               value={glassParams.edgeSoftness}
               onChange={onGlassParam("edgeSoftness")}
+            />
+          </label>
+          <label className="app__label">
+            Soft box light
+            <input
+              type="checkbox"
+              checked={glassParams.boxLightEnabled}
+              onChange={onBoxLightEnabled}
+            />
+          </label>
+          <label className="app__label">
+            Box intensity
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="2"
+              value={glassParams.boxLightIntensity}
+              onChange={onGlassParam("boxLightIntensity")}
+            />
+          </label>
+          <label className="app__label">
+            Box softness
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              max="0.8"
+              value={glassParams.boxLightSoftness}
+              onChange={onGlassParam("boxLightSoftness")}
+            />
+          </label>
+          <label className="app__label">
+            Box width
+            <input
+              type="number"
+              step="0.01"
+              min="0.05"
+              max="0.8"
+              value={glassParams.boxLightSize[0]}
+              onChange={onBoxLightSize(0)}
+            />
+          </label>
+          <label className="app__label">
+            Box height
+            <input
+              type="number"
+              step="0.01"
+              min="0.05"
+              max="0.8"
+              value={glassParams.boxLightSize[1]}
+              onChange={onBoxLightSize(1)}
+            />
+          </label>
+          <label className="app__label">
+            Box X
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              value={glassParams.boxLightPosXY[0]}
+              onChange={onBoxLightPos(0)}
+            />
+          </label>
+          <label className="app__label">
+            Box Y
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              value={glassParams.boxLightPosXY[1]}
+              onChange={onBoxLightPos(1)}
             />
           </label>
           <label className="app__label">
