@@ -7,11 +7,15 @@ export type CellRect = {
 };
 
 export type GlassParams = {
-  tint: [number, number, number];
+  lightDirXY: [number, number];
+  lightFollowPointer: boolean;
+  pointerLightMix: number;
   specularPower: number;
-  fresnelPower: number;
-  causticStrength: number;
-  bodyDarkness: number;
+  specularIntensity: number;
+  rimPower: number;
+  rimIntensity: number;
+  refractionStrength: number;
+  edgeSoftness: number;
 };
 
 export type SceneData = {
@@ -19,6 +23,7 @@ export type SceneData = {
   lightPos: { x: number; y: number };
   cellRects: CellRect[];
   containerRects: CellRect[];
+  cellLabels: string[][];
   glassParams: GlassParams;
 };
 

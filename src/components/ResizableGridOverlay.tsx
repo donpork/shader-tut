@@ -147,6 +147,8 @@ type Props = {
   rows: number;
   /** [row][col] cell copy; outer grid alignment matches p5 `cellRects` (DOM only, not p5). */
   cellLabels: CellLabelGrid;
+  showDebugShader: boolean;
+  showDebugGrid: boolean;
 };
 
 function cumToSplitLeft(fr: readonly number[], splitAfterCol: number): number {
@@ -159,7 +161,14 @@ function cumToSplitLeft(fr: readonly number[], splitAfterCol: number): number {
  * Fills the scene; grid tracks are fractional. Drag internal edges (and interior corners) to
  * redistribute space. Outer bounds follow the window/scene.
  */
-export function ResizableGridOverlay({ dataRef, cols, rows, cellLabels }: Props) {
+export function ResizableGridOverlay({
+  dataRef,
+  cols,
+  rows,
+  cellLabels,
+  showDebugShader,
+  showDebugGrid,
+}: Props) {
   const c = Math.min(12, Math.max(1, Math.floor(cols)));
   const r = Math.min(12, Math.max(1, Math.floor(rows)));
 
@@ -175,6 +184,8 @@ export function ResizableGridOverlay({ dataRef, cols, rows, cellLabels }: Props)
     v: number[];
     h: number[];
   } | null>(null);
+  const [debugShaderRects, setDebugShaderRects] = useState<CellRect[]>([]);
+  const [debugGridRects, setDebugGridRects] = useState<CellRect[]>([]);
 
   const drag = useRef<Drag | null>(null);
   const moveListener = useRef<((e: PointerEvent) => void) | null>(null);
@@ -233,6 +244,8 @@ export function ResizableGridOverlay({ dataRef, cols, rows, cellLabels }: Props)
     const grid = cellsRef.current;
     const setSceneRects = (cellRects: CellRect[], containerRects: CellRect[]) => {
       dataRef.current = { ...dataRef.current, cellRects, containerRects };
+      setDebugGridRects(cellRects);
+      setDebugShaderRects(containerRects);
     };
     const pw = el ? el.clientWidth : 0;
     const ph = el ? el.clientHeight : 0;
@@ -264,8 +277,6 @@ export function ResizableGridOverlay({ dataRef, cols, rows, cellLabels }: Props)
       setSceneRects(fallbackRects, fallbackRects);
       return;
     }
-    const go = grid.offsetLeft;
-    const gto = grid.offsetTop;
     const rootRect = el.getBoundingClientRect();
     const rects: CellRect[] = [];
     const containerRects: CellRect[] = [];
@@ -274,12 +285,13 @@ export function ResizableGridOverlay({ dataRef, cols, rows, cellLabels }: Props)
         const i = row * c + col;
         const n = nodes[i]!;
         const id = `${row}-${col}`;
+        const nr = n.getBoundingClientRect();
         const cellRect = {
           id,
-          x: go + n.offsetLeft,
-          y: gto + n.offsetTop,
-          w: n.offsetWidth,
-          h: n.offsetHeight,
+          x: nr.left - rootRect.left,
+          y: nr.top - rootRect.top,
+          w: nr.width,
+          h: nr.height,
         };
         rects.push(cellRect);
         const surface = n.querySelector<HTMLElement>(".resizable-grid__cell-surface");
@@ -385,6 +397,31 @@ export function ResizableGridOverlay({ dataRef, cols, rows, cellLabels }: Props)
       h: Math.max(1, el.clientHeight),
     };
   }, [w, h]);
+
+  const updateLightFromClient = useCallback(
+    (clientX: number, clientY: number) => {
+      const el = rootRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const x = Math.min(Math.max(clientX - rect.left, 0), rect.width);
+      const y = Math.min(Math.max(clientY - rect.top, 0), rect.height);
+      dataRef.current = { ...dataRef.current, lightPos: { x, y } };
+    },
+    [dataRef]
+  );
+
+  const onRootPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    updateLightFromClient(e.clientX, e.clientY);
+  };
+
+  const onRootPointerLeave = () => {
+    const el = rootRef.current;
+    if (!el) return;
+    dataRef.current = {
+      ...dataRef.current,
+      lightPos: { x: el.clientWidth * 0.5, y: el.clientHeight * 0.5 },
+    };
+  };
 
   const onPointerDownV = (index: number) => (e: React.PointerEvent) => {
     e.preventDefault();
@@ -529,7 +566,12 @@ export function ResizableGridOverlay({ dataRef, cols, rows, cellLabels }: Props)
   } as const;
 
   return (
-    <div ref={rootRef} className="resizable-grid resizable-grid--fill">
+    <div
+      ref={rootRef}
+      className="resizable-grid resizable-grid--fill"
+      onPointerMove={onRootPointerMove}
+      onPointerLeave={onRootPointerLeave}
+    >
       <ShaderCanvas
         dataRef={dataRef}
         className="shader-canvas__host resizable-grid__canvas-host"
@@ -628,6 +670,36 @@ export function ResizableGridOverlay({ dataRef, cols, rows, cellLabels }: Props)
             ))
           ).flat()}
       </div>
+      {(showDebugGrid || showDebugShader) && (
+        <div className="resizable-grid__debug-overlay" aria-hidden>
+          {showDebugGrid &&
+            debugGridRects.map((rect) => (
+              <div
+                key={`grid-${rect.id}`}
+                className="resizable-grid__debug-rect resizable-grid__debug-rect--grid"
+                style={{
+                  left: `${rect.x}px`,
+                  top: `${rect.y}px`,
+                  width: `${rect.w}px`,
+                  height: `${rect.h}px`,
+                }}
+              />
+            ))}
+          {showDebugShader &&
+            debugShaderRects.map((rect) => (
+            <div
+              key={`shader-${rect.id}`}
+              className="resizable-grid__debug-rect resizable-grid__debug-rect--shader"
+              style={{
+                left: `${rect.x}px`,
+                top: `${rect.y}px`,
+                width: `${rect.w}px`,
+                height: `${rect.h}px`,
+              }}
+            />
+            ))}
+        </div>
+      )}
     </div>
   );
 }

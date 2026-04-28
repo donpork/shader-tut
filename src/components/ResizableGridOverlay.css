@@ -106,7 +106,7 @@
   overflow: visible;
   /* Single-line intrinsic size: no wrap, no hyphenation, no forced shrink */
   text-align: center;
-  color: rgba(255, 255, 255, 0.88);
+  color: transparent;
 }
 
 .resizable-grid__cell-text--empty {
@@ -145,20 +145,7 @@
   cursor: ew-resize;
 }
 .resizable-grid__split--v::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  margin-left: -0.5px;
-  background: #f00;
-  pointer-events: none;
-}
-.resizable-grid__split--v:hover::before,
-.resizable-grid__split--v:focus-visible::before {
-  background: #ff4444;
-  box-shadow: 0 0 0 0.5px #f00;
+  content: none;
 }
 
 /* Horizontal: 1px red line; `top` in px = seam y; no margin (avoid double -5px) */
@@ -171,20 +158,7 @@
   cursor: ns-resize;
 }
 .resizable-grid__split--h::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  margin-top: -0.5px;
-  background: #f00;
-  pointer-events: none;
-}
-.resizable-grid__split--h:hover::before,
-.resizable-grid__split--h:focus-visible::before {
-  background: #ff4444;
-  box-shadow: 0 0 0.5px 0 #f00;
+  content: none;
 }
 
 /* Interior four-way junctions: center of button = intersection of V/H line centers (no double offset) */
@@ -203,7 +177,7 @@
 }
 .resizable-grid__split--corner:hover,
 .resizable-grid__split--corner:focus-visible {
-  background: rgba(255, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.12);
   outline: none;
 }
 
@@ -220,4 +194,28 @@
   user-select: none;
   pointer-events: none;
   font-family: system-ui, sans-serif;
+}
+
+.resizable-grid__debug-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.resizable-grid__debug-rect {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 2px;
+}
+
+.resizable-grid__debug-rect--shader {
+  border: 1px dashed rgba(64, 224, 208, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(64, 224, 208, 0.25);
+  border-radius: 999px;
+}
+
+.resizable-grid__debug-rect--grid {
+  border: 1px dashed rgba(255, 201, 79, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(255, 201, 79, 0.2);
 }

@@ -43,6 +43,20 @@ description: >-
 - Read frame inputs from the shared ref and set all uniforms together before drawing.
 - Keep shader import paths and module usage consistent across files.
 
+## Advanced shader reference (The Book of Shaders)
+
+- Primary reference: [The Book of Shaders](https://thebookofshaders.com/)
+- Noise and fbm patterns: [Chapter 11](https://thebookofshaders.com/11/)
+- Shaping and smooth transitions: [Chapter 5](https://thebookofshaders.com/05/)
+- Lighting fundamentals for specular behavior: [Chapter 8](https://thebookofshaders.com/08/)
+
+When implementing advanced shader code in this repo:
+
+- Start with the smallest shader change that proves the visual goal.
+- Keep all animated inputs uniform-driven (`uTime`, refs, and scene data bridge).
+- Prefer `smoothstep` edge control and clamped UV sampling to reduce visual artifacts.
+- Keep coordinate spaces explicit (cell-local UV vs canvas/world-aligned coordinates).
+
 ## Run the app
 
 ```bash
