@@ -63,7 +63,7 @@
   /* overflow:hidden would zero the grid item's content-based min; tracks could shrink below
      the padded label box and clip. Surface clips the rounded frame; the cell may overflow. */
   overflow: visible;
-  min-width: min-content;
+  min-width: max(calc(2 * var(--gutter-x)), min-content);
   min-height: min-content;
 }
 
@@ -71,7 +71,7 @@
 .resizable-grid__cell-chrome {
   container-type: size;
   box-sizing: border-box;
-  min-width: 0;
+  min-width: max(calc(2 * var(--gutter-x)), min-content);
   min-height: min-content;
   flex: 1 1 auto;
   display: flex;

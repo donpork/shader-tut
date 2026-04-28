@@ -26,6 +26,7 @@ import "./ResizableGridOverlay.css";
  */
 const MIN_COL_PX = 88;
 const MIN_ROW_PX = 72;
+const MAX_TRACK_FRACTION = 0.5;
 
 function makeUniformFracs(n: number): number[] {
   const f = 1 / Math.max(1, n);
@@ -35,6 +36,80 @@ function makeUniformFracs(n: number): number[] {
 function minTrackPx(ideal: number, totalPx: number, count: number): number {
   if (count < 1) return 0;
   return Math.max(0, Math.min(ideal, totalPx / count - 0.1));
+}
+
+function enforceTrackBounds(
+  tracksPx: number[],
+  totalPx: number,
+  minPx: number,
+  maxFraction: number
+): number[] {
+  const n = tracksPx.length;
+  if (n === 0 || totalPx <= 0) return tracksPx.slice();
+
+  const eps = 1e-6;
+  let lower = Math.max(0, minPx);
+  let upper = Math.max(lower, totalPx * maxFraction);
+
+  // Keep constraints feasible for any track count.
+  if (lower * n > totalPx) lower = totalPx / n;
+  if (upper * n < totalPx) upper = totalPx / n;
+
+  const out = tracksPx.map((v) => Math.min(upper, Math.max(lower, v)));
+
+  for (let iter = 0; iter < 12; iter += 1) {
+    const sum = out.reduce((a, v) => a + v, 0);
+    const diff = totalPx - sum;
+    if (Math.abs(diff) <= eps) break;
+
+    if (diff > 0) {
+      const growable = out
+        .map((v, i) => ({ i, room: upper - v }))
+        .filter((x) => x.room > eps);
+      if (growable.length === 0) break;
+      const roomSum = growable.reduce((a, x) => a + x.room, 0);
+      for (const g of growable) {
+        out[g.i] += (diff * g.room) / roomSum;
+      }
+    } else {
+      const shrinkable = out
+        .map((v, i) => ({ i, room: v - lower }))
+        .filter((x) => x.room > eps);
+      if (shrinkable.length === 0) break;
+      const roomSum = shrinkable.reduce((a, x) => a + x.room, 0);
+      for (const s of shrinkable) {
+        out[s.i] += (diff * s.room) / roomSum; // diff is negative
+      }
+    }
+
+    for (let i = 0; i < n; i += 1) {
+      out[i] = Math.min(upper, Math.max(lower, out[i]));
+    }
+  }
+
+  // Final exact-sum correction without violating lower/upper bounds.
+  let rem = totalPx - out.reduce((a, v) => a + v, 0);
+  if (Math.abs(rem) > eps) {
+    if (rem > 0) {
+      for (let i = 0; i < n && rem > eps; i += 1) {
+        const room = upper - out[i];
+        if (room <= eps) continue;
+        const take = Math.min(room, rem);
+        out[i] += take;
+        rem -= take;
+      }
+    } else {
+      for (let i = 0; i < n && rem < -eps; i += 1) {
+        const room = out[i] - lower;
+        if (room <= eps) continue;
+        const take = Math.min(room, -rem);
+        out[i] -= take;
+        rem += take;
+      }
+    }
+  }
+
+  return out;
 }
 
 type Drag =
@@ -156,59 +231,73 @@ export function ResizableGridOverlay({ dataRef, cols, rows, cellLabels }: Props)
   const measureAndPushScene = useCallback(() => {
     const el = rootRef.current;
     const grid = cellsRef.current;
+    const setSceneRects = (cellRects: CellRect[], containerRects: CellRect[]) => {
+      dataRef.current = { ...dataRef.current, cellRects, containerRects };
+    };
     const pw = el ? el.clientWidth : 0;
     const ph = el ? el.clientHeight : 0;
     if (!el || colFracs.length !== c || rowFracs.length !== r) {
       setMeasSplits(null);
       if (el && pw > 0 && ph > 0) {
-        dataRef.current = {
-          ...dataRef.current,
-          cellRects: splitGridRects(colFracs, rowFracs, pw, ph),
-        };
+        const fallbackRects = splitGridRects(colFracs, rowFracs, pw, ph);
+        setSceneRects(fallbackRects, fallbackRects);
       } else {
-        dataRef.current = { ...dataRef.current, cellRects: [] };
+        setSceneRects([], []);
       }
       return;
     }
     if (pw <= 0 || ph <= 0) {
       setMeasSplits(null);
-      dataRef.current = { ...dataRef.current, cellRects: [] };
+      setSceneRects([], []);
       return;
     }
     if (!grid) {
       setMeasSplits(null);
-      dataRef.current = {
-        ...dataRef.current,
-        cellRects: splitGridRects(colFracs, rowFracs, pw, ph),
-      };
+      const fallbackRects = splitGridRects(colFracs, rowFracs, pw, ph);
+      setSceneRects(fallbackRects, fallbackRects);
       return;
     }
     const nodes = grid.querySelectorAll<HTMLElement>(".resizable-grid__cell");
     if (nodes.length !== c * r) {
       setMeasSplits(null);
-      dataRef.current = {
-        ...dataRef.current,
-        cellRects: splitGridRects(colFracs, rowFracs, pw, ph),
-      };
+      const fallbackRects = splitGridRects(colFracs, rowFracs, pw, ph);
+      setSceneRects(fallbackRects, fallbackRects);
       return;
     }
     const go = grid.offsetLeft;
     const gto = grid.offsetTop;
+    const rootRect = el.getBoundingClientRect();
     const rects: CellRect[] = [];
+    const containerRects: CellRect[] = [];
     for (let row = 0; row < r; row++) {
       for (let col = 0; col < c; col++) {
         const i = row * c + col;
         const n = nodes[i]!;
-        rects.push({
-          id: `${row}-${col}`,
+        const id = `${row}-${col}`;
+        const cellRect = {
+          id,
           x: go + n.offsetLeft,
           y: gto + n.offsetTop,
           w: n.offsetWidth,
           h: n.offsetHeight,
+        };
+        rects.push(cellRect);
+        const surface = n.querySelector<HTMLElement>(".resizable-grid__cell-surface");
+        if (!surface) {
+          containerRects.push(cellRect);
+          continue;
+        }
+        const sr = surface.getBoundingClientRect();
+        containerRects.push({
+          id,
+          x: sr.left - rootRect.left,
+          y: sr.top - rootRect.top,
+          w: sr.width,
+          h: sr.height,
         });
       }
     }
-    dataRef.current = { ...dataRef.current, cellRects: rects };
+    setSceneRects(rects, containerRects);
     /* V seam: BCR to device pixels. H seam: row line matches layout; offset box often snaps
      * ~0.5px above getBoundingClientRect().bottom, so the + sat slightly below. Prefer
      * offsetTop+offsetHeight from the cells grid (same origin as splits when both inset:0). */
@@ -322,7 +411,8 @@ export function ResizableGridOverlay({ dataRef, cols, rows, cellLabels }: Props)
         applyAxisPixelDelta(wPx, d.index, dPix, m),
         W
       );
-      setColFracs(nextW.map((x) => x / W));
+      const bounded = enforceTrackBounds(nextW, W, m, MAX_TRACK_FRACTION);
+      setColFracs(bounded.map((x) => x / W));
     };
     const onPointerEnd = (ev: PointerEvent) => {
       endDrag(ev);
@@ -359,7 +449,8 @@ export function ResizableGridOverlay({ dataRef, cols, rows, cellLabels }: Props)
         applyAxisPixelDelta(hPx, d.index, dPix, m),
         H
       );
-      setRowFracs(nextH.map((x) => x / H));
+      const bounded = enforceTrackBounds(nextH, H, m, MAX_TRACK_FRACTION);
+      setRowFracs(bounded.map((x) => x / H));
     };
     const onPointerEnd = (ev: PointerEvent) => {
       endDrag(ev);
@@ -412,8 +503,10 @@ export function ResizableGridOverlay({ dataRef, cols, rows, cellLabels }: Props)
           applyAxisPixelDelta(hPx, d.row, dRow, mRow),
           H
         );
-        setColFracs(nextW.map((x) => x / W));
-        setRowFracs(nextH.map((x) => x / H));
+        const boundedW = enforceTrackBounds(nextW, W, mCol, MAX_TRACK_FRACTION);
+        const boundedH = enforceTrackBounds(nextH, H, mRow, MAX_TRACK_FRACTION);
+        setColFracs(boundedW.map((x) => x / W));
+        setRowFracs(boundedH.map((x) => x / H));
       };
       const onPointerEnd = (ev: PointerEvent) => {
         endDrag(ev);
