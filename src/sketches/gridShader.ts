@@ -87,6 +87,8 @@ export function createGridShaderSketch(
       sh.setUniform("uSpecularIntensity", gp.specularIntensity);
       sh.setUniform("uRimPower", gp.rimPower);
       sh.setUniform("uRimIntensity", gp.rimIntensity);
+      sh.setUniform("uFlatPow", gp.flatPow);
+      sh.setUniform("uPlateau", gp.plateau);
       sh.setUniform("uRefractionStrength", gp.refractionStrength);
       sh.setUniform("uEdgeSoftness", gp.edgeSoftness);
       sh.setUniform("uBevelEnabled", gp.bevelEnabled ? 1 : 0);

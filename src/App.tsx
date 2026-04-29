@@ -21,6 +21,8 @@ const GLASS_DEFAULTS: GlassParams = {
   specularIntensity: 0.5,
   rimPower: 8.0,
   rimIntensity: 0.01,
+  flatPow: 2.2,
+  plateau: 0.18,
   refractionStrength: 0.1,
   edgeSoftness: 4.0,
   boxLightEnabled: true,
@@ -112,6 +114,12 @@ function App() {
         }
         if (key === "rimIntensity") {
           return { ...prev, rimIntensity: clamp(n, 0.0, 2.0) };
+        }
+        if (key === "flatPow") {
+          return { ...prev, flatPow: clamp(n, 1.0, 8.0) };
+        }
+        if (key === "plateau") {
+          return { ...prev, plateau: clamp(n, 0.0, 0.8) };
         }
         if (key === "refractionStrength") {
           return { ...prev, refractionStrength: clamp(n, 0.0, 32.0) };
@@ -386,6 +394,28 @@ function App() {
                 max="2"
                 value={glassParams.rimIntensity}
                 onChange={onGlassParam("rimIntensity")}
+              />
+            </label>
+            <label className="app__label">
+              Flat pow
+              <input
+                type="number"
+                step="0.1"
+                min="1"
+                max="8"
+                value={glassParams.flatPow}
+                onChange={onGlassParam("flatPow")}
+              />
+            </label>
+            <label className="app__label">
+              Plateau
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="0.8"
+                value={glassParams.plateau}
+                onChange={onGlassParam("plateau")}
               />
             </label>
             <label className="app__label">

@@ -14,6 +14,8 @@ uniform float uSpecularPower;
 uniform float uSpecularIntensity;
 uniform float uRimPower;
 uniform float uRimIntensity;
+uniform float uFlatPow;
+uniform float uPlateau;
 uniform float uRefractionStrength;
 uniform float uEdgeSoftness;
 uniform float uBevelEnabled;
@@ -66,20 +68,15 @@ void main() {
   float gradLen = length(grad);
   vec2 nOut = gradLen > 1e-5 ? grad / gradLen : normalize(localPx + vec2(1e-6));
 
-  vec2 centered = vec2(
-    localPx.x / max(halfSize.x, 1.0),
-    localPx.y / max(halfSize.y, 1.0)
-  );
-  float r = length(centered);
-  float z = sqrt(max(0.0, 1.0 - min(r * r, 1.0)));
-  vec3 N_geom = normalize(vec3(centered, z));
-  // Resolve shape mismatch: blend spherical center normal with rounded-rect bevel normal near edges.
-  float shapeBandPx = max(uBevelWidthPx * 1.35, 2.0);
-  float edgeBlend = 1.0 - smoothstep(0.0, shapeBandPx, distIn);
-  float bevelLift = 0.82;
-  vec3 N_bevel = normalize(vec3(nOut * bevelLift, 1.0));
-  vec3 N_shape = normalize(mix(N_geom, N_bevel, edgeBlend));
-  vec3 N = N_shape;
+  float maxInPx = max(min(halfSize.x, halfSize.y), 1.0);
+  float dNorm = clamp(distIn / maxInPx, 0.0, 1.0);
+  float plateau = clamp(uPlateau, 0.0, 0.8);
+  float flatPow = max(uFlatPow, 1.0);
+  float t = clamp((dNorm - plateau) / max(1.0 - plateau, 1e-4), 0.0, 1.0);
+  // Side tilt from SDF distance: removes center-radius taper and respects flat controls.
+  float side = pow(1.0 - t, flatPow);
+  vec3 N_geom = normalize(vec3(-nOut * side, 1.0));
+  vec3 N = N_geom;
   vec3 V = vec3(0.0, 0.0, 1.0);
 
   // Use absolute screen-space sampling so each cell refracts the background
@@ -142,10 +139,20 @@ void main() {
   }
 
   vec3 finalColor =
-    refracted + crescent + rim + boxColor + pointerBoxColor + bevelTint;
+    refracted
+    + crescent
+    + rim
+    + boxColor
+    + pointerBoxColor
+    + bevelTint;
   finalColor = min(finalColor, vec3(1.0));
   float alpha = clamp(
-    (0.58 + rimBand + spec * 0.25 + (boxLight + ptrLight) * 0.2) * mask,
+    (
+      0.46
+      + rimBand
+      + spec * 0.25
+      + (boxLight + ptrLight) * 0.2
+    ) * mask,
     0.0,
     1.0
   );

@@ -20,6 +20,10 @@ export type GlassParams = {
   specularIntensity: number;
   rimPower: number;
   rimIntensity: number;
+  /** Dome profile exponent (>1 flattens center crown). */
+  flatPow: number;
+  /** Center plateau radius in normalized dome space [0..0.8]. */
+  plateau: number;
   refractionStrength: number;
   edgeSoftness: number;
   boxLightEnabled: boolean;
