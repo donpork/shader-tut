@@ -66,26 +66,33 @@ export function createGridShaderSketch(
       if (!d.containerRects.length) return;
       p.ortho(-p.width * 0.5, p.width * 0.5, -p.height * 0.5, p.height * 0.5, -1000, 1000);
       const gp = d.glassParams;
-      const [baseX, baseY] = normalize2(gp.lightDirXY[0], gp.lightDirXY[1]);
-      const [pointerX, pointerY] = normalize2(
-        d.lightPos.x - p.width * 0.5,
-        d.lightPos.y - p.height * 0.5
+      const [lightX, lightY] = normalize2(gp.lightDirXY[0], gp.lightDirXY[1]);
+      const [specX, specY] = normalize2(
+        gp.specularLightXY[0],
+        gp.specularLightXY[1]
       );
-      const pointerMix = gp.lightFollowPointer ? gp.pointerLightMix : 0;
-      const [lightX, lightY] = normalize2(
-        baseX * (1 - pointerMix) + pointerX * pointerMix,
-        baseY * (1 - pointerMix) + pointerY * pointerMix
-      );
+      const pointerUvX = d.lightPos.x / Math.max(p.width, 1);
+      const pointerUvY = d.lightPos.y / Math.max(p.height, 1);
       p.shader(sh);
       sh.setUniform("uResolution", [p.width, p.height]);
       sh.setUniform("uBackground", bgLayer);
       sh.setUniform("uLightDir", [lightX, lightY, 0.85]);
+      sh.setUniform("uSpecularLightDir", [specX, specY, 0.85]);
+      sh.setUniform("uPointerBoxEnabled", gp.lightFollowPointer ? 1 : 0);
+      sh.setUniform("uPointerBoxIntensity", gp.pointerBoxIntensity);
+      sh.setUniform("uPointerBoxSoftness", gp.pointerBoxSoftness);
+      sh.setUniform("uPointerBoxSize", gp.pointerBoxSize);
+      sh.setUniform("uPointerBoxPos", [pointerUvX, pointerUvY]);
       sh.setUniform("uSpecularPower", gp.specularPower);
       sh.setUniform("uSpecularIntensity", gp.specularIntensity);
       sh.setUniform("uRimPower", gp.rimPower);
       sh.setUniform("uRimIntensity", gp.rimIntensity);
       sh.setUniform("uRefractionStrength", gp.refractionStrength);
       sh.setUniform("uEdgeSoftness", gp.edgeSoftness);
+      sh.setUniform("uBevelEnabled", gp.bevelEnabled ? 1 : 0);
+      sh.setUniform("uBevelStrength", gp.bevelStrength);
+      sh.setUniform("uBevelWidthPx", Math.max(0.5, gp.bevelWidthPx));
+      sh.setUniform("uBevelExponent", gp.bevelExponent);
       sh.setUniform("uBoxLightEnabled", gp.boxLightEnabled ? 1 : 0);
       sh.setUniform("uBoxLightIntensity", gp.boxLightIntensity);
       sh.setUniform("uBoxLightSoftness", gp.boxLightSoftness);

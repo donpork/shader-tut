@@ -218,6 +218,6 @@
 }
 
 .resizable-grid__debug-rect--grid {
-  border: 1px solid #f00;
+  border: 0.5px solid #f00;
   box-shadow: none;
 }

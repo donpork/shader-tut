@@ -7,9 +7,15 @@ export type CellRect = {
 };
 
 export type GlassParams = {
+  /** Base direction for bevel / rim context (normalized with z in shader). */
   lightDirXY: [number, number];
+  /** Specular direction in XY (normalized with z in shader). */
+  specularLightXY: [number, number];
+  /** When true, adds a soft box highlight centered on the pointer. */
   lightFollowPointer: boolean;
-  pointerLightMix: number;
+  pointerBoxIntensity: number;
+  pointerBoxSoftness: number;
+  pointerBoxSize: [number, number];
   specularPower: number;
   specularIntensity: number;
   rimPower: number;
@@ -21,6 +27,14 @@ export type GlassParams = {
   boxLightSoftness: number;
   boxLightSize: [number, number];
   boxLightPosXY: [number, number];
+  /** Fake rim bevel (fragment shading from rounded-rect SDF). */
+  bevelEnabled: boolean;
+  /** Signed brighten/darken vs light (~0–1). */
+  bevelStrength: number;
+  /** Falloff distance in px for exp(-exponent * dist/width). */
+  bevelWidthPx: number;
+  /** Higher = tighter rim hugging the cel edge. */
+  bevelExponent: number;
 };
 
 export type SceneData = {
