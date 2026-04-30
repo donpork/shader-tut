@@ -92,3 +92,13 @@
   background: transparent;
   box-sizing: border-box;
 }
+
+@media (max-width: 768px) {
+  .app__param-groups {
+    display: none;
+  }
+
+  .app__header {
+    padding: 0.75rem 1rem 0.5rem;
+  }
+}
