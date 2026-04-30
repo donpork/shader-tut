@@ -3,6 +3,7 @@ import type { MutableRefObject } from "react";
 import type { SceneData } from "../lib/sceneData";
 import vert from "../shaders/cell.vert?raw";
 import frag from "../shaders/cell.frag?raw";
+import cubeStripUrl from "../assets/StandardCubeMap.png";
 
 /**
  * Instance-mode sketch for one WEBGL canvas. draw() reads dataRef; React writes it.
@@ -21,6 +22,8 @@ export function createGridShaderSketch(
   return (p: p5) => {
     let sh: p5.Shader;
     let bgLayer: p5.Graphics;
+    let cubeStrip: p5.Image | null = null;
+    let envLoadAttempted = false;
 
     const drawBackgroundLayer = () => {
       const d = dataRef.current;
@@ -54,6 +57,18 @@ export function createGridShaderSketch(
       p.ortho(-w * 0.5, w * 0.5, -h * 0.5, h * 0.5, -1000, 1000);
       sh = p.createShader(vert, frag);
       bgLayer = p.createGraphics(w, h);
+      if (!envLoadAttempted) {
+        envLoadAttempted = true;
+        p.loadImage(
+          cubeStripUrl,
+          (img) => {
+            cubeStrip = img;
+          },
+          () => {
+            // Keep fallback lighting path if image load fails.
+          }
+        );
+      }
     };
 
     p.draw = () => {
@@ -67,22 +82,12 @@ export function createGridShaderSketch(
       p.ortho(-p.width * 0.5, p.width * 0.5, -p.height * 0.5, p.height * 0.5, -1000, 1000);
       const gp = d.glassParams;
       const [lightX, lightY] = normalize2(gp.lightDirXY[0], gp.lightDirXY[1]);
-      const [specX, specY] = normalize2(
-        gp.specularLightXY[0],
-        gp.specularLightXY[1]
-      );
-      const pointerUvX = d.lightPos.x / Math.max(p.width, 1);
-      const pointerUvY = d.lightPos.y / Math.max(p.height, 1);
       p.shader(sh);
       sh.setUniform("uResolution", [p.width, p.height]);
       sh.setUniform("uBackground", bgLayer);
+      sh.setUniform("uCubeStrip", cubeStrip ?? bgLayer);
+      sh.setUniform("uEnvMix", cubeStrip ? 1.0 : 0.0);
       sh.setUniform("uLightDir", [lightX, lightY, 0.85]);
-      sh.setUniform("uSpecularLightDir", [specX, specY, 0.85]);
-      sh.setUniform("uPointerBoxEnabled", gp.lightFollowPointer ? 1 : 0);
-      sh.setUniform("uPointerBoxIntensity", gp.pointerBoxIntensity);
-      sh.setUniform("uPointerBoxSoftness", gp.pointerBoxSoftness);
-      sh.setUniform("uPointerBoxSize", gp.pointerBoxSize);
-      sh.setUniform("uPointerBoxPos", [pointerUvX, pointerUvY]);
       sh.setUniform("uSpecularPower", gp.specularPower);
       sh.setUniform("uSpecularIntensity", gp.specularIntensity);
       sh.setUniform("uRimPower", gp.rimPower);
@@ -102,6 +107,27 @@ export function createGridShaderSketch(
       sh.setUniform("uBoxLightPos", gp.boxLightPosXY);
       for (let i = 0; i < d.containerRects.length; i += 1) {
         const c = d.containerRects[i]!;
+        let specularXY: [number, number] = gp.specularLightXY;
+        if (gp.specularFollowPointer) {
+          const inside =
+            d.lightPos.x >= c.x &&
+            d.lightPos.x <= c.x + c.w &&
+            d.lightPos.y >= c.y &&
+            d.lightPos.y <= c.y + c.h;
+          if (inside) {
+            const cx = c.x + c.w * 0.5;
+            const cy = c.y + c.h * 0.5;
+            const localX = (d.lightPos.x - cx) / Math.max(c.w * 0.5, 1.0);
+            const localY = (d.lightPos.y - cy) / Math.max(c.h * 0.5, 1.0);
+            // Negate local pointer direction so highlight motion matches pointer movement.
+            specularXY = [
+              -Math.max(-1.0, Math.min(1.0, localX)),
+              -Math.max(-1.0, Math.min(1.0, localY)),
+            ];
+          }
+        }
+        const [specX, specY] = normalize2(specularXY[0], specularXY[1]);
+        sh.setUniform("uSpecularLightDir", [specX, specY, 0.85]);
         sh.setUniform("uCellRect", [c.x, c.y, c.w, c.h]);
         p.push();
         p.translate(

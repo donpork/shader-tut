@@ -11,11 +11,8 @@ export type GlassParams = {
   lightDirXY: [number, number];
   /** Specular direction in XY (normalized with z in shader). */
   specularLightXY: [number, number];
-  /** When true, adds a soft box highlight centered on the pointer. */
-  lightFollowPointer: boolean;
-  pointerBoxIntensity: number;
-  pointerBoxSoftness: number;
-  pointerBoxSize: [number, number];
+  /** When true, specular direction tracks pointer position. */
+  specularFollowPointer: boolean;
   specularPower: number;
   specularIntensity: number;
   rimPower: number;

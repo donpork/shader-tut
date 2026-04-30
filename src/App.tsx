@@ -11,28 +11,25 @@ import "./App.css";
 const COL_ROW_MIN = 1;
 const COL_ROW_MAX = 12;
 const GLASS_DEFAULTS: GlassParams = {
-  lightDirXY: [-1.0, -1.0],
+  lightDirXY: [1.0, -1.0],
   specularLightXY: [-1.0, -1.0],
-  lightFollowPointer: true,
-  pointerBoxIntensity: 0.45,
-  pointerBoxSoftness: 0.45,
-  pointerBoxSize: [0.22, 0.22],
+  specularFollowPointer: false,
   specularPower: 45,
-  specularIntensity: 0.5,
-  rimPower: 8.0,
-  rimIntensity: 0.01,
-  flatPow: 2.2,
-  plateau: 0.18,
-  refractionStrength: 0.1,
+  specularIntensity: 1.0,
+  rimPower: 2.0,
+  rimIntensity: 0.1,
+  flatPow: 6.0,
+  plateau: 0.1,
+  refractionStrength: 2.0,
   edgeSoftness: 4.0,
-  boxLightEnabled: true,
+  boxLightEnabled: false,
   boxLightIntensity: 0.5,
   boxLightSoftness: 0.8,
   boxLightSize: [0.5, 0.5],
   boxLightPosXY: [0.0, 0.0],
   bevelEnabled: true,
-  bevelStrength: 0.28,
-  bevelWidthPx: 5,
+  bevelStrength: 1.0,
+  bevelWidthPx: 12,
   bevelExponent: 4,
 };
 
@@ -87,22 +84,12 @@ function App() {
         if (
           key === "lightDirXY" ||
           key === "specularLightXY" ||
-          key === "lightFollowPointer"
+          key === "specularFollowPointer"
         )
           return prev;
-        if (
-          key === "boxLightSize" ||
-          key === "boxLightPosXY" ||
-          key === "pointerBoxSize"
-        )
+        if (key === "boxLightSize" || key === "boxLightPosXY")
           return prev;
         if (key === "boxLightEnabled" || key === "bevelEnabled") return prev;
-        if (key === "pointerBoxIntensity") {
-          return { ...prev, pointerBoxIntensity: clamp(n, 0.0, 2.0) };
-        }
-        if (key === "pointerBoxSoftness") {
-          return { ...prev, pointerBoxSoftness: clamp(n, 0.01, 0.8) };
-        }
         if (key === "specularPower") {
           return { ...prev, specularPower: clamp(n, 1.0, 256.0) };
         }
@@ -164,9 +151,9 @@ function App() {
       });
     };
 
-  const onLightFollowPointer = (e: ChangeEvent<HTMLInputElement>) => {
+  const onSpecularFollowPointer = (e: ChangeEvent<HTMLInputElement>) => {
     const checked = e.target.checked;
-    setGlassParams((prev) => ({ ...prev, lightFollowPointer: checked }));
+    setGlassParams((prev) => ({ ...prev, specularFollowPointer: checked }));
   };
 
   const onBoxLightEnabled = (e: ChangeEvent<HTMLInputElement>) => {
@@ -197,17 +184,6 @@ function App() {
       return { ...prev, boxLightPosXY };
     });
   };
-
-  const onPointerBoxSize =
-    (axis: 0 | 1) => (e: ChangeEvent<HTMLInputElement>) => {
-      const n = Number(e.target.value);
-      if (!Number.isFinite(n)) return;
-      setGlassParams((prev) => {
-        const pointerBoxSize: [number, number] = [...prev.pointerBoxSize];
-        pointerBoxSize[axis] = clamp(n, 0.05, 0.8);
-        return { ...prev, pointerBoxSize };
-      });
-    };
 
   const onDebugShader = (e: ChangeEvent<HTMLInputElement>) => {
     setShowDebugShader(e.target.checked);
@@ -316,59 +292,12 @@ function App() {
                 onChange={onGlassParam("specularIntensity")}
               />
             </label>
-          </fieldset>
-          <fieldset className="app__param-group">
-            <legend>Pointer box</legend>
             <label className="app__label">
-              On
+              Follow pointer
               <input
                 type="checkbox"
-                checked={glassParams.lightFollowPointer}
-                onChange={onLightFollowPointer}
-              />
-            </label>
-            <label className="app__label">
-              Ptr box int
-              <input
-                type="number"
-                step="0.05"
-                min="0"
-                max="2"
-                value={glassParams.pointerBoxIntensity}
-                onChange={onGlassParam("pointerBoxIntensity")}
-              />
-            </label>
-            <label className="app__label">
-              Ptr box soft
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                max="0.8"
-                value={glassParams.pointerBoxSoftness}
-                onChange={onGlassParam("pointerBoxSoftness")}
-              />
-            </label>
-            <label className="app__label">
-              Ptr box W
-              <input
-                type="number"
-                step="0.01"
-                min="0.05"
-                max="0.8"
-                value={glassParams.pointerBoxSize[0]}
-                onChange={onPointerBoxSize(0)}
-              />
-            </label>
-            <label className="app__label">
-              Ptr box H
-              <input
-                type="number"
-                step="0.01"
-                min="0.05"
-                max="0.8"
-                value={glassParams.pointerBoxSize[1]}
-                onChange={onPointerBoxSize(1)}
+                checked={glassParams.specularFollowPointer}
+                onChange={onSpecularFollowPointer}
               />
             </label>
           </fieldset>

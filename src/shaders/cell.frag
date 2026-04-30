@@ -2,13 +2,10 @@ precision highp float;
 
 uniform vec2 uResolution;
 uniform sampler2D uBackground;
+uniform sampler2D uCubeStrip;
+uniform float uEnvMix;
 uniform vec3 uLightDir;
 uniform vec3 uSpecularLightDir;
-uniform float uPointerBoxEnabled;
-uniform float uPointerBoxIntensity;
-uniform float uPointerBoxSoftness;
-uniform vec2 uPointerBoxSize;
-uniform vec2 uPointerBoxPos;
 uniform vec4 uCellRect; // x, y, w, h in top-left scene space
 uniform float uSpecularPower;
 uniform float uSpecularIntensity;
@@ -49,6 +46,45 @@ vec2 rr_grad(vec2 p, vec2 halfSize, float radius) {
     sdRoundedRect(p + vec2(0.0, e), halfSize, radius)
     - sdRoundedRect(p - vec2(0.0, e), halfSize, radius);
   return vec2(gx, gy) * 0.5;
+}
+
+vec3 sampleCubeStrip(vec3 dir) {
+  vec3 d = normalize(dir);
+  vec3 ad = abs(d);
+  float faceIndex = 0.0;
+  vec2 faceUV = vec2(0.5);
+
+  // Face order in StandardCubeMap strip: +X, -X, +Y, -Y, +Z, -Z.
+  if (ad.x >= ad.y && ad.x >= ad.z) {
+    if (d.x > 0.0) {
+      faceIndex = 0.0;
+      faceUV = vec2(-d.z, d.y) / ad.x;
+    } else {
+      faceIndex = 1.0;
+      faceUV = vec2(d.z, d.y) / ad.x;
+    }
+  } else if (ad.y >= ad.x && ad.y >= ad.z) {
+    if (d.y > 0.0) {
+      faceIndex = 2.0;
+      faceUV = vec2(d.x, -d.z) / ad.y;
+    } else {
+      faceIndex = 3.0;
+      faceUV = vec2(d.x, d.z) / ad.y;
+    }
+  } else {
+    if (d.z > 0.0) {
+      faceIndex = 4.0;
+      faceUV = vec2(d.x, d.y) / ad.z;
+    } else {
+      faceIndex = 5.0;
+      faceUV = vec2(-d.x, d.y) / ad.z;
+    }
+  }
+
+  vec2 uv01 = faceUV * 0.5 + 0.5;
+  float faceW = 1.0 / 6.0;
+  vec2 atlasUV = vec2((faceIndex + uv01.x) * faceW, uv01.y);
+  return texture2D(uCubeStrip, clamp(atlasUV, 0.001, 0.999)).rgb;
 }
 
 void main() {
@@ -103,12 +139,29 @@ void main() {
   float refractPx = uRefractionStrength * (2.0 + 8.0 * fresnel);
   vec2 refractOffset = (N.xy * refractPx) / max(uResolution, vec2(1.0));
   vec2 refractUV = clamp(sceneUV + refractOffset, 0.001, 0.999);
-  vec3 refracted = texture2D(uBackground, refractUV).rgb;
+  vec3 singleSampleColor = texture2D(uBackground, refractUV).rgb;
+  // Only spend the extra RGB split refraction cost near high-Fresnel silhouettes.
+  float dispersionWeight = smoothstep(0.3, 0.8, fresnel);
+  float dispPx = refractPx * 0.22;
+  vec2 dispDir = normalize(N.xy + vec2(1e-6));
+  vec2 dispStep = (dispDir * dispPx) / max(uResolution, vec2(1.0));
+  vec3 tripleDispersionColor = vec3(
+    texture2D(uBackground, clamp(sceneUV + refractOffset - dispStep, 0.001, 0.999)).r,
+    texture2D(uBackground, clamp(sceneUV + refractOffset, 0.001, 0.999)).g,
+    texture2D(uBackground, clamp(sceneUV + refractOffset + dispStep, 0.001, 0.999)).b
+  );
+  vec3 refracted = mix(singleSampleColor, tripleDispersionColor, dispersionWeight);
+  // Global-space cubemap lookup: all cells use the same world-space env.
+  vec2 sceneN = sceneUV * 2.0 - 1.0;
+  vec3 worldV = normalize(vec3(sceneN.x, -sceneN.y, 1.35));
+  vec3 worldR = reflect(-worldV, N);
+  vec3 envColor = sampleCubeStrip(worldR);
 
   vec3 crescent = vec3(spec);
 
   float rimBand = smoothstep(0.52, 0.98, fresnel) * max(uRimIntensity, 0.0);
   vec3 rim = vec3(rimBand);
+  vec3 envSpec = envColor * (0.3 + 0.7 * fresnel) * uEnvMix;
 
   vec2 boxHalf = max(uBoxLightSize * 0.5, vec2(0.001));
   float boxDist = sdBox(sceneUV - uBoxLightPos, boxHalf);
@@ -117,15 +170,6 @@ void main() {
   float boxFacing = smoothstep(0.15, 1.0, N.z);
   float boxLight = uBoxLightEnabled * boxMask * boxFacing * max(uBoxLightIntensity, 0.0);
   vec3 boxColor = vec3(boxLight);
-
-  vec2 ptrHalf = max(uPointerBoxSize * 0.5, vec2(0.001));
-  float ptrDist = sdBox(sceneUV - uPointerBoxPos, ptrHalf);
-  float ptrSoft = max(uPointerBoxSoftness, 0.001);
-  float ptrMask = 1.0 - smoothstep(0.0, ptrSoft, ptrDist);
-  float ptrFacing = smoothstep(0.15, 1.0, N.z);
-  float ptrLight =
-    uPointerBoxEnabled * ptrMask * ptrFacing * max(uPointerBoxIntensity, 0.0);
-  vec3 pointerBoxColor = vec3(ptrLight);
 
   vec3 bevelTint = vec3(0.0);
   if (uBevelEnabled > 0.5) {
@@ -142,8 +186,8 @@ void main() {
     refracted
     + crescent
     + rim
+    + envSpec
     + boxColor
-    + pointerBoxColor
     + bevelTint;
   finalColor = min(finalColor, vec3(1.0));
   float alpha = clamp(
@@ -151,7 +195,7 @@ void main() {
       0.46
       + rimBand
       + spec * 0.25
-      + (boxLight + ptrLight) * 0.2
+      + boxLight * 0.2
     ) * mask,
     0.0,
     1.0
