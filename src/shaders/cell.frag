@@ -48,6 +48,14 @@ vec2 rr_grad(vec2 p, vec2 halfSize, float radius) {
   return vec2(gx, gy) * 0.5;
 }
 
+vec3 hueShift(vec3 color, float angle) {
+  // Axis-angle rotation around gray axis preserves luma better than channel remaps.
+  vec3 k = normalize(vec3(1.0, 1.0, 1.0));
+  float c = cos(angle);
+  float s = sin(angle);
+  return color * c + cross(k, color) * s + k * dot(k, color) * (1.0 - c);
+}
+
 vec3 sampleCubeStrip(vec3 dir) {
   vec3 d = normalize(dir);
   vec3 ad = abs(d);
@@ -141,8 +149,8 @@ void main() {
   vec2 refractUV = clamp(sceneUV + refractOffset, 0.001, 0.999);
   vec3 singleSampleColor = texture2D(uBackground, refractUV).rgb;
   // Only spend the extra RGB split refraction cost near high-Fresnel silhouettes.
-  float dispersionWeight = smoothstep(0.3, 0.8, fresnel);
-  float dispPx = refractPx * 0.22;
+  float dispersionWeight = smoothstep(0.18, 0.68, fresnel);
+  float dispPx = refractPx * 0.45;
   vec2 dispDir = normalize(N.xy + vec2(1e-6));
   vec2 dispStep = (dispDir * dispPx) / max(uResolution, vec2(1.0));
   vec3 tripleDispersionColor = vec3(
@@ -150,6 +158,8 @@ void main() {
     texture2D(uBackground, clamp(sceneUV + refractOffset, 0.001, 0.999)).g,
     texture2D(uBackground, clamp(sceneUV + refractOffset + dispStep, 0.001, 0.999)).b
   );
+  float edgeHueShift = 0.55 * dispersionWeight;
+  tripleDispersionColor = hueShift(tripleDispersionColor, edgeHueShift);
   vec3 refracted = mix(singleSampleColor, tripleDispersionColor, dispersionWeight);
   // Global-space cubemap lookup: all cells use the same world-space env.
   vec2 sceneN = sceneUV * 2.0 - 1.0;
