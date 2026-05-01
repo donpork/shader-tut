@@ -24,6 +24,8 @@ uniform float uBoxLightIntensity;
 uniform float uBoxLightSoftness;
 uniform vec2 uBoxLightSize;
 uniform vec2 uBoxLightPos;
+/** 0 normal; 1 raw bg sceneUV; 2 raw bg flip-Y; 3 refractUV; 4 env only — see App Debug UI. */
+uniform float uDebugMode;
 
 varying vec2 vTexCoord;
 
@@ -130,6 +132,16 @@ void main() {
     1.0 - (gl_FragCoord.y / max(uResolution.y, 1.0))
   );
 
+  if (uDebugMode > 0.5 && uDebugMode < 1.5) {
+    gl_FragColor = vec4(texture2D(uBackground, clamp(sceneUV, 0.001, 0.999)).rgb, 1.0);
+    return;
+  }
+  if (uDebugMode > 1.5 && uDebugMode < 2.5) {
+    vec2 uvFlip = vec2(sceneUV.x, 1.0 - sceneUV.y);
+    gl_FragColor = vec4(texture2D(uBackground, clamp(uvFlip, 0.001, 0.999)).rgb, 1.0);
+    return;
+  }
+
   vec3 L_base = normalize(uLightDir);
   vec3 L_spec = normalize(uSpecularLightDir);
   vec3 H = normalize(L_spec + V);
@@ -147,6 +159,10 @@ void main() {
   float refractPx = uRefractionStrength * (2.0 + 8.0 * fresnel);
   vec2 refractOffset = (N.xy * refractPx) / max(uResolution, vec2(1.0));
   vec2 refractUV = clamp(sceneUV + refractOffset, 0.001, 0.999);
+  if (uDebugMode > 2.5 && uDebugMode < 3.5) {
+    gl_FragColor = vec4(texture2D(uBackground, refractUV).rgb, 1.0);
+    return;
+  }
   vec3 singleSampleColor = texture2D(uBackground, refractUV).rgb;
   // Only spend the extra RGB split refraction cost near high-Fresnel silhouettes.
   float dispersionWeight = smoothstep(0.18, 0.68, fresnel);
@@ -166,6 +182,11 @@ void main() {
   vec3 worldV = normalize(vec3(sceneN.x, -sceneN.y, 1.35));
   vec3 worldR = reflect(-worldV, N);
   vec3 envColor = sampleCubeStrip(worldR);
+
+  if (uDebugMode > 3.5 && uDebugMode < 4.5) {
+    gl_FragColor = vec4(envColor * uEnvMix, 1.0);
+    return;
+  }
 
   vec3 crescent = vec3(spec);
 

@@ -38,6 +38,23 @@ export type GlassParams = {
   bevelExponent: number;
 };
 
+/**
+ * Diagnostic rendering modes for `gridShader` + `cell.frag`.
+ * Controlled from App Debug UI → synced into `dataRef.sceneDebugMode`.
+ */
+export type SceneDebugMode =
+  | "off"
+  /** Draw only p5 `bgLayer` (labels + plate); skips glass shader. */
+  | "bg_layer_p5"
+  /** Inside lens: sample `uBackground` at `sceneUV` (no refraction offset). */
+  | "shader_raw_bg"
+  /** Same as raw BG but flips V — detects texture-vs-screen Y mismatch. */
+  | "shader_raw_bg_flip_y"
+  /** Inside lens: sample at production `refractUV` (offset applied). */
+  | "shader_refract_uv"
+  /** Inside lens: cubemap color only (`envColor * uEnvMix`). */
+  | "shader_env_only";
+
 export type SceneData = {
   /** Screen space, origin top-left of the scene (canvas) */
   lightPos: { x: number; y: number };
@@ -45,5 +62,6 @@ export type SceneData = {
   containerRects: CellRect[];
   cellLabels: string[][];
   glassParams: GlassParams;
+  sceneDebugMode: SceneDebugMode;
 };
 

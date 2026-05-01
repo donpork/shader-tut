@@ -5,7 +5,7 @@ import {
   resizeLabelGrid,
   type CellLabelGrid,
 } from "./lib/cellLabelGrid";
-import type { GlassParams, SceneData } from "./lib/sceneData";
+import type { GlassParams, SceneData, SceneDebugMode } from "./lib/sceneData";
 import "./App.css";
 
 const COL_ROW_MIN = 1;
@@ -45,6 +45,7 @@ function App() {
     containerRects: [],
     cellLabels: initialLabels,
     glassParams: GLASS_DEFAULTS,
+    sceneDebugMode: "off",
   });
   const [cols, setCols] = useState(4);
   const [rows, setRows] = useState(4);
@@ -52,6 +53,7 @@ function App() {
   const [cellLabels, setCellLabels] = useState<CellLabelGrid>(initialLabels);
   const [showDebugShader, setShowDebugShader] = useState(false);
   const [showDebugGrid, setShowDebugGrid] = useState(true);
+  const [sceneDebugMode, setSceneDebugMode] = useState<SceneDebugMode>("off");
   const [controlsExpanded, setControlsExpanded] = useState(true);
 
   useLayoutEffect(() => {
@@ -67,6 +69,10 @@ function App() {
   useLayoutEffect(() => {
     dataRef.current = { ...dataRef.current, cellLabels };
   }, [cellLabels]);
+
+  useLayoutEffect(() => {
+    dataRef.current = { ...dataRef.current, sceneDebugMode };
+  }, [sceneDebugMode]);
 
   const onColRow = (key: "cols" | "rows", value: number) => {
     const v = Math.min(
@@ -192,6 +198,10 @@ function App() {
 
   const onDebugGrid = (e: ChangeEvent<HTMLInputElement>) => {
     setShowDebugGrid(e.target.checked);
+  };
+
+  const onSceneDebugMode = (e: ChangeEvent<HTMLSelectElement>) => {
+    setSceneDebugMode(e.target.value as SceneDebugMode);
   };
 
   return (
@@ -523,6 +533,22 @@ function App() {
             <legend>Debug</legend>
             <div className="app__param-group__body">
             <label className="app__label">
+              Scene debug mode
+              <select
+                className="app__select"
+                value={sceneDebugMode}
+                onChange={onSceneDebugMode}
+                aria-label="Scene debug diagnostic mode"
+              >
+                <option value="off">Off (normal)</option>
+                <option value="bg_layer_p5">p5: bg layer only</option>
+                <option value="shader_raw_bg">Shader: raw BG @ sceneUV</option>
+                <option value="shader_raw_bg_flip_y">Shader: raw BG flip-Y</option>
+                <option value="shader_refract_uv">Shader: BG @ refractUV</option>
+                <option value="shader_env_only">Shader: env / cubemap only</option>
+              </select>
+            </label>
+            <label className="app__label">
               Debug shader
               <input
                 type="checkbox"
@@ -539,6 +565,19 @@ function App() {
               />
             </label>
             </div>
+            <p className="app__hint app__hint--debug-steps">
+              <strong>How to read these modes:</strong> (1) <strong>p5 bg layer only</strong> — If every
+              cel label appears here but not in normal mode, the problem is in the WebGL pass (sampling,
+              refraction, alpha), not in React or <code>bgLayer</code> drawing. (2){' '}
+              <strong>Shader raw BG @ sceneUV</strong> — Shows the background texture at each fragment’s
+              screen position without refraction; all pills should show the correct string (R1C2, …). If
+              flip-Y looks correct but this does not, fix UV orientation when sampling{' '}
+              <code>uBackground</code>. (3) <strong>BG @ refractUV</strong> — Same but with the production
+              offset; if raw sceneUV is readable here but not here, refraction is steering samples off the
+              glyphs. (4) <strong>Env only</strong> — Cubemap strip only inside lenses; use with{' '}
+              <strong>specular follow pointer</strong> off so one cel is not misleadingly brighter. Return
+              mode to <strong>Off</strong> when finished.
+            </p>
           </fieldset>
         </div>
       </header>

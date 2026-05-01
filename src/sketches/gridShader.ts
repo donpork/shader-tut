@@ -1,6 +1,21 @@
 import p5 from "p5";
 import type { MutableRefObject } from "react";
-import type { SceneData } from "../lib/sceneData";
+import type { SceneData, SceneDebugMode } from "../lib/sceneData";
+
+function shaderDebugUniform(mode: SceneDebugMode): number {
+  switch (mode) {
+    case "shader_raw_bg":
+      return 1;
+    case "shader_raw_bg_flip_y":
+      return 2;
+    case "shader_refract_uv":
+      return 3;
+    case "shader_env_only":
+      return 4;
+    default:
+      return 0;
+  }
+}
 import vert from "../shaders/cell.vert?raw";
 import frag from "../shaders/cell.frag?raw";
 import cubeStripUrl from "../assets/StandardCubeMap.png";
@@ -78,14 +93,22 @@ export function createGridShaderSketch(
       }
       drawBackgroundLayer();
       p.background(10, 12, 18);
+
+      if (d.sceneDebugMode === "bg_layer_p5") {
+        p.ortho(-p.width * 0.5, p.width * 0.5, -p.height * 0.5, p.height * 0.5, -1000, 1000);
+        p.resetShader();
+        p.imageMode(p.CENTER);
+        p.image(bgLayer, 0, 0, p.width, p.height);
+        return;
+      }
+
       if (!d.containerRects.length) return;
       p.ortho(-p.width * 0.5, p.width * 0.5, -p.height * 0.5, p.height * 0.5, -1000, 1000);
       const gp = d.glassParams;
       const [lightX, lightY] = normalize2(gp.lightDirXY[0], gp.lightDirXY[1]);
       p.shader(sh);
       sh.setUniform("uResolution", [p.width, p.height]);
-      sh.setUniform("uBackground", bgLayer);
-      sh.setUniform("uCubeStrip", cubeStrip ?? bgLayer);
+      sh.setUniform("uDebugMode", shaderDebugUniform(d.sceneDebugMode));
       sh.setUniform("uEnvMix", cubeStrip ? 1.0 : 0.0);
       sh.setUniform("uLightDir", [lightX, lightY, 0.85]);
       sh.setUniform("uSpecularPower", gp.specularPower);
@@ -129,6 +152,11 @@ export function createGridShaderSketch(
         const [specX, specY] = normalize2(specularXY[0], specularXY[1]);
         sh.setUniform("uSpecularLightDir", [specX, specY, 0.85]);
         sh.setUniform("uCellRect", [c.x, c.y, c.w, c.h]);
+        // p5 calls fillShader.unbindShader() after every retained draw, which resets all sampler
+        // uniforms to an empty texture (see p5.Shader.unbindTextures). Re-bind per cell so every
+        // p.plane() pass actually samples bgLayer / cubeStrip instead of the empty fallback.
+        sh.setUniform("uBackground", bgLayer);
+        sh.setUniform("uCubeStrip", cubeStrip ?? bgLayer);
         p.push();
         p.translate(
           c.x + c.w * 0.5 - p.width * 0.5,
