@@ -52,6 +52,7 @@ function App() {
   const [cellLabels, setCellLabels] = useState<CellLabelGrid>(initialLabels);
   const [showDebugShader, setShowDebugShader] = useState(false);
   const [showDebugGrid, setShowDebugGrid] = useState(true);
+  const [controlsExpanded, setControlsExpanded] = useState(true);
 
   useLayoutEffect(() => {
     setCellLabels((prev) =>
@@ -196,10 +197,26 @@ function App() {
   return (
     <div className="app">
       <header className="app__header">
-        <h1>shader-tut</h1>
-        <div className="app__param-groups">
+        <div className="app__title-row">
+          <h1>shader-tut</h1>
+          <button
+            type="button"
+            className="app__controls-toggle"
+            onClick={() => setControlsExpanded((v) => !v)}
+          >
+            {controlsExpanded ? "Collapse all" : "Expand all"}
+          </button>
+        </div>
+        <div
+          className={
+            controlsExpanded
+              ? "app__param-groups"
+              : "app__param-groups app__param-groups--collapsed"
+          }
+        >
           <fieldset className="app__param-group">
             <legend>Grid</legend>
+            <div className="app__param-group__body">
             <label className="app__label">
               Columns
               <input
@@ -220,9 +237,11 @@ function App() {
                 onChange={(e) => onColRow("rows", Number(e.target.value))}
               />
             </label>
+            </div>
           </fieldset>
           <fieldset className="app__param-group">
             <legend>Key light</legend>
+            <div className="app__param-group__body">
             <label className="app__label">
               Light X
               <input
@@ -245,9 +264,11 @@ function App() {
                 onChange={onLightDir(1)}
               />
             </label>
+            </div>
           </fieldset>
           <fieldset className="app__param-group">
             <legend>Specular</legend>
+            <div className="app__param-group__body">
             <label className="app__label">
               Spec X
               <input
@@ -300,9 +321,11 @@ function App() {
                 onChange={onSpecularFollowPointer}
               />
             </label>
+            </div>
           </fieldset>
           <fieldset className="app__param-group">
             <legend>Glass</legend>
+            <div className="app__param-group__body">
             <label className="app__label">
               Rim power
               <input
@@ -369,9 +392,11 @@ function App() {
                 onChange={onGlassParam("edgeSoftness")}
               />
             </label>
+            </div>
           </fieldset>
           <fieldset className="app__param-group">
             <legend>Bevel</legend>
+            <div className="app__param-group__body">
             <label className="app__label">
               Bevel
               <input
@@ -413,9 +438,11 @@ function App() {
                 onChange={onGlassParam("bevelExponent")}
               />
             </label>
+            </div>
           </fieldset>
           <fieldset className="app__param-group">
             <legend>Soft box</legend>
+            <div className="app__param-group__body">
             <label className="app__label">
               Soft box light
               <input
@@ -490,9 +517,11 @@ function App() {
                 onChange={onBoxLightPos(1)}
               />
             </label>
+            </div>
           </fieldset>
           <fieldset className="app__param-group">
             <legend>Debug</legend>
+            <div className="app__param-group__body">
             <label className="app__label">
               Debug shader
               <input
@@ -509,6 +538,7 @@ function App() {
                 onChange={onDebugGrid}
               />
             </label>
+            </div>
           </fieldset>
         </div>
       </header>
