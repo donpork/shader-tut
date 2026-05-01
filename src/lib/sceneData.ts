@@ -23,6 +23,14 @@ export type GlassParams = {
   plateau: number;
   refractionStrength: number;
   edgeSoftness: number;
+  /** Rotates channel-split CA fringe on the gray axis (radians); ±π cycles hues. */
+  dispersionHueShift: number;
+  /** How much spectral fringe keeps chroma vs pulled toward gray [0–1]. Higher = more rainbow. */
+  dispersionSaturation: number;
+  /** Multiplier on spectral sample spacing along the prism axis (wider separation). */
+  dispersionSpread: number;
+  /** Sharpens per-tap spectral RGB weights; 1 ≈ stock bases, >1 pushes more saturated rainbow separation. */
+  dispersionSharpness: number;
   boxLightEnabled: boolean;
   boxLightIntensity: number;
   boxLightSoftness: number;
@@ -38,22 +46,15 @@ export type GlassParams = {
   bevelExponent: number;
 };
 
-/**
- * Diagnostic rendering modes for `gridShader` + `cell.frag`.
- * Controlled from App Debug UI → synced into `dataRef.sceneDebugMode`.
- */
-export type SceneDebugMode =
-  | "off"
-  /** Draw only p5 `bgLayer` (labels + plate); skips glass shader. */
-  | "bg_layer_p5"
-  /** Inside lens: sample `uBackground` at `sceneUV` (no refraction offset). */
-  | "shader_raw_bg"
-  /** Same as raw BG but flips V — detects texture-vs-screen Y mismatch. */
-  | "shader_raw_bg_flip_y"
-  /** Inside lens: sample at production `refractUV` (offset applied). */
-  | "shader_refract_uv"
-  /** Inside lens: cubemap color only (`envColor * uEnvMix`). */
-  | "shader_env_only";
+/** Click-triggered one-shot specular sweep: full turn in XY, timed in performance.now() ms. */
+export type SpecularSpinState = {
+  cellId: string;
+  startTimeMs: number;
+  durationMs: number;
+  /** Unit XY direction at t=0 (matches inverted normalized cell-local pointer convention). */
+  startSpecDirX: number;
+  startSpecDirY: number;
+};
 
 export type SceneData = {
   /** Screen space, origin top-left of the scene (canvas) */
@@ -62,6 +63,7 @@ export type SceneData = {
   containerRects: CellRect[];
   cellLabels: string[][];
   glassParams: GlassParams;
-  sceneDebugMode: SceneDebugMode;
+  /** When set, that cell’s spec direction rotates once from start direction; sketch clears when done. */
+  specularSpin: SpecularSpinState | null;
 };
 

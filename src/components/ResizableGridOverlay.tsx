@@ -27,6 +27,8 @@ import "./ResizableGridOverlay.css";
 const MIN_COL_PX = 88;
 const MIN_ROW_PX = 72;
 const MAX_TRACK_FRACTION = 0.5;
+/** One full specular rotation in the shader after a cell surface click. */
+const SPECULAR_SPIN_DURATION_MS = 350;
 
 function makeUniformFracs(n: number): number[] {
   const f = 1 / Math.max(1, n);
@@ -423,6 +425,55 @@ export function ResizableGridOverlay({
     };
   };
 
+  const onCellPointerDown =
+    (row: number, col: number) => (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      const el = rootRef.current;
+      if (!el) return;
+      const idx = row * c + col;
+      const cr = dataRef.current.containerRects[idx];
+      if (!cr || cr.w <= 0 || cr.h <= 0) return;
+      const rootRect = el.getBoundingClientRect();
+      const x = Math.min(
+        Math.max(e.clientX - rootRect.left, 0),
+        rootRect.width
+      );
+      const y = Math.min(
+        Math.max(e.clientY - rootRect.top, 0),
+        rootRect.height
+      );
+      if (x < cr.x || x > cr.x + cr.w || y < cr.y || y > cr.y + cr.h) {
+        return;
+      }
+      const cx = cr.x + cr.w * 0.5;
+      const cy = cr.y + cr.h * 0.5;
+      const localX = (x - cx) / Math.max(cr.w * 0.5, 1.0);
+      const localY = (y - cy) / Math.max(cr.h * 0.5, 1.0);
+      const sx = -Math.max(-1.0, Math.min(1.0, localX));
+      const sy = -Math.max(-1.0, Math.min(1.0, localY));
+      const len = Math.hypot(sx, sy);
+      let nx = sx;
+      let ny = sy;
+      if (len < 1e-5) {
+        nx = 0;
+        ny = -1;
+      } else {
+        nx /= len;
+        ny /= len;
+      }
+      e.preventDefault();
+      dataRef.current = {
+        ...dataRef.current,
+        specularSpin: {
+          cellId: cr.id,
+          startTimeMs: performance.now(),
+          durationMs: SPECULAR_SPIN_DURATION_MS,
+          startSpecDirX: nx,
+          startSpecDirY: ny,
+        },
+      };
+    };
+
   const onPointerDownV = (index: number) => (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -591,6 +642,7 @@ export function ResizableGridOverlay({
                 key={`${row}-${col}`}
                 className="resizable-grid__cell"
                 role="gridcell"
+                onPointerDown={onCellPointerDown(row, col)}
                 aria-label={
                   text
                     ? undefined

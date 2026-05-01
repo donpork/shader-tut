@@ -5,7 +5,7 @@ import {
   resizeLabelGrid,
   type CellLabelGrid,
 } from "./lib/cellLabelGrid";
-import type { GlassParams, SceneData, SceneDebugMode } from "./lib/sceneData";
+import type { GlassParams, SceneData } from "./lib/sceneData";
 import "./App.css";
 
 const COL_ROW_MIN = 1;
@@ -16,12 +16,16 @@ const GLASS_DEFAULTS: GlassParams = {
   specularFollowPointer: true,
   specularPower: 60,
   specularIntensity: 2.0,
-  rimPower: 0.1,
+  rimPower: 0.6,
   rimIntensity: 0.1,
-  flatPow: 6.0,
+  flatPow: 3.0,
   plateau: 0.1,
   refractionStrength: 4.0,
   edgeSoftness: 4.0,
+  dispersionHueShift: 0.1,
+  dispersionSaturation: 1.0,
+  dispersionSpread: 1.0,
+  dispersionSharpness: 1.0,
   boxLightEnabled: false,
   boxLightIntensity: 0.5,
   boxLightSoftness: 0.8,
@@ -45,7 +49,7 @@ function App() {
     containerRects: [],
     cellLabels: initialLabels,
     glassParams: GLASS_DEFAULTS,
-    sceneDebugMode: "off",
+    specularSpin: null,
   });
   const [cols, setCols] = useState(4);
   const [rows, setRows] = useState(4);
@@ -53,7 +57,6 @@ function App() {
   const [cellLabels, setCellLabels] = useState<CellLabelGrid>(initialLabels);
   const [showDebugShader, setShowDebugShader] = useState(false);
   const [showDebugGrid, setShowDebugGrid] = useState(true);
-  const [sceneDebugMode, setSceneDebugMode] = useState<SceneDebugMode>("off");
   const [controlsExpanded, setControlsExpanded] = useState(true);
 
   useLayoutEffect(() => {
@@ -69,10 +72,6 @@ function App() {
   useLayoutEffect(() => {
     dataRef.current = { ...dataRef.current, cellLabels };
   }, [cellLabels]);
-
-  useLayoutEffect(() => {
-    dataRef.current = { ...dataRef.current, sceneDebugMode };
-  }, [sceneDebugMode]);
 
   const onColRow = (key: "cols" | "rows", value: number) => {
     const v = Math.min(
@@ -133,7 +132,22 @@ function App() {
         if (key === "bevelExponent") {
           return { ...prev, bevelExponent: clamp(n, 1.0, 16.0) };
         }
-        return { ...prev, edgeSoftness: clamp(n, 0.2, 4.0) };
+        if (key === "dispersionHueShift") {
+          return { ...prev, dispersionHueShift: clamp(n, -3.14159, 3.14159) };
+        }
+        if (key === "dispersionSaturation") {
+          return { ...prev, dispersionSaturation: clamp(n, 0.0, 1.0) };
+        }
+        if (key === "dispersionSpread") {
+          return { ...prev, dispersionSpread: clamp(n, 0.25, 3.0) };
+        }
+        if (key === "dispersionSharpness") {
+          return { ...prev, dispersionSharpness: clamp(n, 0.0, 3.0) };
+        }
+        if (key === "edgeSoftness") {
+          return { ...prev, edgeSoftness: clamp(n, 0.2, 4.0) };
+        }
+        return prev;
       });
     };
 
@@ -198,10 +212,6 @@ function App() {
 
   const onDebugGrid = (e: ChangeEvent<HTMLInputElement>) => {
     setShowDebugGrid(e.target.checked);
-  };
-
-  const onSceneDebugMode = (e: ChangeEvent<HTMLSelectElement>) => {
-    setSceneDebugMode(e.target.value as SceneDebugMode);
   };
 
   return (
@@ -402,6 +412,50 @@ function App() {
                 onChange={onGlassParam("edgeSoftness")}
               />
             </label>
+            <label className="app__label">
+              Disp hue (rad)
+              <input
+                type="number"
+                step="0.05"
+                min="-3.15"
+                max="3.15"
+                value={glassParams.dispersionHueShift}
+                onChange={onGlassParam("dispersionHueShift")}
+              />
+            </label>
+            <label className="app__label">
+              Disp saturate
+              <input
+                type="number"
+                step="0.02"
+                min="0"
+                max="1"
+                value={glassParams.dispersionSaturation}
+                onChange={onGlassParam("dispersionSaturation")}
+              />
+            </label>
+            <label className="app__label">
+              Disp spread
+              <input
+                type="number"
+                step="0.05"
+                min="0.25"
+                max="3"
+                value={glassParams.dispersionSpread}
+                onChange={onGlassParam("dispersionSpread")}
+              />
+            </label>
+            <label className="app__label">
+              Disp sharp
+              <input
+                type="number"
+                step="0.05"
+                min="0"
+                max="3"
+                value={glassParams.dispersionSharpness}
+                onChange={onGlassParam("dispersionSharpness")}
+              />
+            </label>
             </div>
           </fieldset>
           <fieldset className="app__param-group">
@@ -533,22 +587,6 @@ function App() {
             <legend>Debug</legend>
             <div className="app__param-group__body">
             <label className="app__label">
-              Scene debug mode
-              <select
-                className="app__select"
-                value={sceneDebugMode}
-                onChange={onSceneDebugMode}
-                aria-label="Scene debug diagnostic mode"
-              >
-                <option value="off">Off (normal)</option>
-                <option value="bg_layer_p5">p5: bg layer only</option>
-                <option value="shader_raw_bg">Shader: raw BG @ sceneUV</option>
-                <option value="shader_raw_bg_flip_y">Shader: raw BG flip-Y</option>
-                <option value="shader_refract_uv">Shader: BG @ refractUV</option>
-                <option value="shader_env_only">Shader: env / cubemap only</option>
-              </select>
-            </label>
-            <label className="app__label">
               Debug shader
               <input
                 type="checkbox"
@@ -565,19 +603,6 @@ function App() {
               />
             </label>
             </div>
-            <p className="app__hint app__hint--debug-steps">
-              <strong>How to read these modes:</strong> (1) <strong>p5 bg layer only</strong> — If every
-              cel label appears here but not in normal mode, the problem is in the WebGL pass (sampling,
-              refraction, alpha), not in React or <code>bgLayer</code> drawing. (2){' '}
-              <strong>Shader raw BG @ sceneUV</strong> — Shows the background texture at each fragment’s
-              screen position without refraction; all pills should show the correct string (R1C2, …). If
-              flip-Y looks correct but this does not, fix UV orientation when sampling{' '}
-              <code>uBackground</code>. (3) <strong>BG @ refractUV</strong> — Same but with the production
-              offset; if raw sceneUV is readable here but not here, refraction is steering samples off the
-              glyphs. (4) <strong>Env only</strong> — Cubemap strip only inside lenses; use with{' '}
-              <strong>specular follow pointer</strong> off so one cel is not misleadingly brighter. Return
-              mode to <strong>Off</strong> when finished.
-            </p>
           </fieldset>
         </div>
       </header>

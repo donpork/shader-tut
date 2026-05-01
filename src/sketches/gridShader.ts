@@ -1,24 +1,19 @@
 import p5 from "p5";
 import type { MutableRefObject } from "react";
-import type { SceneData, SceneDebugMode } from "../lib/sceneData";
-
-function shaderDebugUniform(mode: SceneDebugMode): number {
-  switch (mode) {
-    case "shader_raw_bg":
-      return 1;
-    case "shader_raw_bg_flip_y":
-      return 2;
-    case "shader_refract_uv":
-      return 3;
-    case "shader_env_only":
-      return 4;
-    default:
-      return 0;
-  }
-}
+import type { SceneData } from "../lib/sceneData";
 import vert from "../shaders/cell.vert?raw";
 import frag from "../shaders/cell.frag?raw";
 import cubeStripUrl from "../assets/StandardCubeMap.png";
+
+/** Linear t∈[0,1] → eased phase∈[0,1], exponential ease-in-out (Penner). */
+function expoEaseInOut01(t: number): number {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  if (t < 0.5) {
+    return Math.pow(2, 20 * t - 10) / 2;
+  }
+  return (2 - Math.pow(2, -20 * t + 10)) / 2;
+}
 
 /**
  * Instance-mode sketch for one WEBGL canvas. draw() reads dataRef; React writes it.
@@ -87,28 +82,28 @@ export function createGridShaderSketch(
     };
 
     p.draw = () => {
-      const d = dataRef.current;
+      let scene = dataRef.current;
       if (bgLayer.width !== p.width || bgLayer.height !== p.height) {
         bgLayer.resizeCanvas(p.width, p.height);
       }
       drawBackgroundLayer();
       p.background(10, 12, 18);
 
-      if (d.sceneDebugMode === "bg_layer_p5") {
-        p.ortho(-p.width * 0.5, p.width * 0.5, -p.height * 0.5, p.height * 0.5, -1000, 1000);
-        p.resetShader();
-        p.imageMode(p.CENTER);
-        p.image(bgLayer, 0, 0, p.width, p.height);
-        return;
+      if (!scene.containerRects.length) return;
+      scene = dataRef.current;
+      const spinDone = scene.specularSpin;
+      if (
+        spinDone &&
+        performance.now() - spinDone.startTimeMs >= spinDone.durationMs
+      ) {
+        dataRef.current = { ...scene, specularSpin: null };
+        scene = dataRef.current;
       }
-
-      if (!d.containerRects.length) return;
       p.ortho(-p.width * 0.5, p.width * 0.5, -p.height * 0.5, p.height * 0.5, -1000, 1000);
-      const gp = d.glassParams;
+      const gp = scene.glassParams;
       const [lightX, lightY] = normalize2(gp.lightDirXY[0], gp.lightDirXY[1]);
       p.shader(sh);
       sh.setUniform("uResolution", [p.width, p.height]);
-      sh.setUniform("uDebugMode", shaderDebugUniform(d.sceneDebugMode));
       sh.setUniform("uEnvMix", cubeStrip ? 1.0 : 0.0);
       sh.setUniform("uLightDir", [lightX, lightY, 0.85]);
       sh.setUniform("uSpecularPower", gp.specularPower);
@@ -119,6 +114,10 @@ export function createGridShaderSketch(
       sh.setUniform("uPlateau", gp.plateau);
       sh.setUniform("uRefractionStrength", gp.refractionStrength);
       sh.setUniform("uEdgeSoftness", gp.edgeSoftness);
+      sh.setUniform("uDispersionHueShift", gp.dispersionHueShift);
+      sh.setUniform("uDispersionSaturation", gp.dispersionSaturation);
+      sh.setUniform("uDispersionSpread", gp.dispersionSpread);
+      sh.setUniform("uDispersionSharpness", gp.dispersionSharpness);
       sh.setUniform("uBevelEnabled", gp.bevelEnabled ? 1 : 0);
       sh.setUniform("uBevelStrength", gp.bevelStrength);
       sh.setUniform("uBevelWidthPx", Math.max(0.5, gp.bevelWidthPx));
@@ -128,20 +127,34 @@ export function createGridShaderSketch(
       sh.setUniform("uBoxLightSoftness", gp.boxLightSoftness);
       sh.setUniform("uBoxLightSize", gp.boxLightSize);
       sh.setUniform("uBoxLightPos", gp.boxLightPosXY);
-      for (let i = 0; i < d.containerRects.length; i += 1) {
-        const c = d.containerRects[i]!;
+      for (let i = 0; i < scene.containerRects.length; i += 1) {
+        const c = scene.containerRects[i]!;
         let specularXY: [number, number] = gp.specularLightXY;
-        if (gp.specularFollowPointer) {
+        const spin = scene.specularSpin;
+        if (spin && spin.cellId === c.id) {
+          const elapsed = performance.now() - spin.startTimeMs;
+          const tLin = Math.min(1.0, elapsed / spin.durationMs);
+          const phase = expoEaseInOut01(tLin);
+          const theta = phase * Math.PI * 2.0;
+          const cosT = Math.cos(theta);
+          const sinT = Math.sin(theta);
+          const sx = spin.startSpecDirX;
+          const sy = spin.startSpecDirY;
+          specularXY = [
+            sx * cosT - sy * sinT,
+            sx * sinT + sy * cosT,
+          ];
+        } else if (gp.specularFollowPointer) {
           const inside =
-            d.lightPos.x >= c.x &&
-            d.lightPos.x <= c.x + c.w &&
-            d.lightPos.y >= c.y &&
-            d.lightPos.y <= c.y + c.h;
+            scene.lightPos.x >= c.x &&
+            scene.lightPos.x <= c.x + c.w &&
+            scene.lightPos.y >= c.y &&
+            scene.lightPos.y <= c.y + c.h;
           if (inside) {
             const cx = c.x + c.w * 0.5;
             const cy = c.y + c.h * 0.5;
-            const localX = (d.lightPos.x - cx) / Math.max(c.w * 0.5, 1.0);
-            const localY = (d.lightPos.y - cy) / Math.max(c.h * 0.5, 1.0);
+            const localX = (scene.lightPos.x - cx) / Math.max(c.w * 0.5, 1.0);
+            const localY = (scene.lightPos.y - cy) / Math.max(c.h * 0.5, 1.0);
             // Negate local pointer direction so highlight motion matches pointer movement.
             specularXY = [
               -Math.max(-1.0, Math.min(1.0, localX)),

@@ -45,6 +45,9 @@
  * Min width/height (2e+text+2e, 1e+text+1e) apply to the inner face; vars inherit to the container.
  */
 .resizable-grid__cell {
+  /* Parent `.resizable-grid__cells` uses `pointer-events: none` (inheritance); re-enable hits so
+   * cell UI (e.g. specular spin on pointerdown) reaches React instead of falling through to WebGL. */
+  pointer-events: auto;
   container-type: size;
   box-sizing: border-box;
   /* Never smaller than em/rem floors or split handle reach into the cell content box */

@@ -24,8 +24,10 @@ uniform float uBoxLightIntensity;
 uniform float uBoxLightSoftness;
 uniform vec2 uBoxLightSize;
 uniform vec2 uBoxLightPos;
-/** 0 normal; 1 raw bg sceneUV; 2 raw bg flip-Y; 3 refractUV; 4 env only — see App Debug UI. */
-uniform float uDebugMode;
+uniform float uDispersionHueShift;
+uniform float uDispersionSaturation;
+uniform float uDispersionSpread;
+uniform float uDispersionSharpness;
 
 varying vec2 vTexCoord;
 
@@ -50,12 +52,76 @@ vec2 rr_grad(vec2 p, vec2 halfSize, float radius) {
   return vec2(gx, gy) * 0.5;
 }
 
-vec3 hueShift(vec3 color, float angle) {
-  // Axis-angle rotation around gray axis preserves luma better than channel remaps.
+// Rotate RGB around the gray axis — shifts fringe hues without changing luma much.
+vec3 rotateHueOnGrayAxis(vec3 color, float angle) {
   vec3 k = normalize(vec3(1.0, 1.0, 1.0));
   float c = cos(angle);
   float s = sin(angle);
   return color * c + cross(k, color) * s + k * dot(k, color) * (1.0 - c);
+}
+
+// Offsets along dispersion axis; asymmetric spread matches stronger blue bend vs red.
+vec2 dispersionOffset(vec2 dispStep, float t) {
+  float asym = (t < 0.0) ? 0.9 : 1.08;
+  return dispStep * t * asym;
+}
+
+vec3 spectralBasisSharpen(vec3 b, float sharpness) {
+  float f = (b.r + b.g + b.b) / 3.0;
+  return mix(vec3(f), b, clamp(sharpness, 0.0, 3.0));
+}
+
+// Seven taps along ±dispStep with wavelength-ish RGB weights (long λ → red-heavy taps).
+vec3 spectralDispersionAccum(vec2 uvBase, vec2 dispStep, float sharpness) {
+  vec3 accum = vec3(0.0);
+  vec3 wSum = vec3(0.0);
+  vec3 b;
+  vec2 o;
+  vec3 s;
+
+  o = dispersionOffset(dispStep, -1.0);
+  b = spectralBasisSharpen(vec3(0.84, 0.11, 0.05), sharpness);
+  s = texture2D(uBackground, clamp(uvBase + o, 0.001, 0.999)).rgb;
+  accum += s * b;
+  wSum += b;
+
+  o = dispersionOffset(dispStep, -0.67);
+  b = spectralBasisSharpen(vec3(0.64, 0.27, 0.09), sharpness);
+  s = texture2D(uBackground, clamp(uvBase + o, 0.001, 0.999)).rgb;
+  accum += s * b;
+  wSum += b;
+
+  o = dispersionOffset(dispStep, -0.33);
+  b = spectralBasisSharpen(vec3(0.38, 0.49, 0.13), sharpness);
+  s = texture2D(uBackground, clamp(uvBase + o, 0.001, 0.999)).rgb;
+  accum += s * b;
+  wSum += b;
+
+  o = dispersionOffset(dispStep, 0.0);
+  b = spectralBasisSharpen(vec3(0.22, 0.58, 0.20), sharpness);
+  s = texture2D(uBackground, clamp(uvBase + o, 0.001, 0.999)).rgb;
+  accum += s * b;
+  wSum += b;
+
+  o = dispersionOffset(dispStep, 0.33);
+  b = spectralBasisSharpen(vec3(0.12, 0.42, 0.46), sharpness);
+  s = texture2D(uBackground, clamp(uvBase + o, 0.001, 0.999)).rgb;
+  accum += s * b;
+  wSum += b;
+
+  o = dispersionOffset(dispStep, 0.67);
+  b = spectralBasisSharpen(vec3(0.06, 0.26, 0.68), sharpness);
+  s = texture2D(uBackground, clamp(uvBase + o, 0.001, 0.999)).rgb;
+  accum += s * b;
+  wSum += b;
+
+  o = dispersionOffset(dispStep, 1.0);
+  b = spectralBasisSharpen(vec3(0.04, 0.14, 0.82), sharpness);
+  s = texture2D(uBackground, clamp(uvBase + o, 0.001, 0.999)).rgb;
+  accum += s * b;
+  wSum += b;
+
+  return accum / wSum;
 }
 
 vec3 sampleCubeStrip(vec3 dir) {
@@ -132,16 +198,6 @@ void main() {
     1.0 - (gl_FragCoord.y / max(uResolution.y, 1.0))
   );
 
-  if (uDebugMode > 0.5 && uDebugMode < 1.5) {
-    gl_FragColor = vec4(texture2D(uBackground, clamp(sceneUV, 0.001, 0.999)).rgb, 1.0);
-    return;
-  }
-  if (uDebugMode > 1.5 && uDebugMode < 2.5) {
-    vec2 uvFlip = vec2(sceneUV.x, 1.0 - sceneUV.y);
-    gl_FragColor = vec4(texture2D(uBackground, clamp(uvFlip, 0.001, 0.999)).rgb, 1.0);
-    return;
-  }
-
   vec3 L_base = normalize(uLightDir);
   vec3 L_spec = normalize(uSpecularLightDir);
   vec3 H = normalize(L_spec + V);
@@ -159,34 +215,24 @@ void main() {
   float refractPx = uRefractionStrength * (2.0 + 8.0 * fresnel);
   vec2 refractOffset = (N.xy * refractPx) / max(uResolution, vec2(1.0));
   vec2 refractUV = clamp(sceneUV + refractOffset, 0.001, 0.999);
-  if (uDebugMode > 2.5 && uDebugMode < 3.5) {
-    gl_FragColor = vec4(texture2D(uBackground, refractUV).rgb, 1.0);
-    return;
-  }
   vec3 singleSampleColor = texture2D(uBackground, refractUV).rgb;
-  // Only spend the extra RGB split refraction cost near high-Fresnel silhouettes.
+  // Extra spectral blur along silhouette (7 bg taps); blend weight follows Fresnel.
   float dispersionWeight = smoothstep(0.18, 0.68, fresnel);
-  float dispPx = refractPx * 0.45;
+  float dispPx = refractPx * 0.45 * clamp(uDispersionSpread, 0.25, 3.0);
   vec2 dispDir = normalize(N.xy + vec2(1e-6));
   vec2 dispStep = (dispDir * dispPx) / max(uResolution, vec2(1.0));
-  vec3 tripleDispersionColor = vec3(
-    texture2D(uBackground, clamp(sceneUV + refractOffset - dispStep, 0.001, 0.999)).r,
-    texture2D(uBackground, clamp(sceneUV + refractOffset, 0.001, 0.999)).g,
-    texture2D(uBackground, clamp(sceneUV + refractOffset + dispStep, 0.001, 0.999)).b
-  );
-  float edgeHueShift = 0.55 * dispersionWeight;
-  tripleDispersionColor = hueShift(tripleDispersionColor, edgeHueShift);
-  vec3 refracted = mix(singleSampleColor, tripleDispersionColor, dispersionWeight);
+  vec2 uvDisp = sceneUV + refractOffset;
+  vec3 spectralBg =
+    spectralDispersionAccum(uvDisp, dispStep, uDispersionSharpness);
+  float lum = dot(spectralBg, vec3(0.2126, 0.7152, 0.0722));
+  spectralBg = mix(vec3(lum), spectralBg, clamp(uDispersionSaturation, 0.0, 1.0));
+  spectralBg = rotateHueOnGrayAxis(spectralBg, uDispersionHueShift);
+  vec3 refracted = mix(singleSampleColor, spectralBg, dispersionWeight);
   // Global-space cubemap lookup: all cells use the same world-space env.
   vec2 sceneN = sceneUV * 2.0 - 1.0;
   vec3 worldV = normalize(vec3(sceneN.x, -sceneN.y, 1.35));
   vec3 worldR = reflect(-worldV, N);
   vec3 envColor = sampleCubeStrip(worldR);
-
-  if (uDebugMode > 3.5 && uDebugMode < 4.5) {
-    gl_FragColor = vec4(envColor * uEnvMix, 1.0);
-    return;
-  }
 
   vec3 crescent = vec3(spec);
 
