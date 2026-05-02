@@ -456,7 +456,9 @@ export function ResizableGridOverlay({
     dataRef.current = {
       ...dataRef.current,
       pointerOverSurface: false,
-      lightPos: { x: el.clientWidth * 0.5, y: el.clientHeight * 0.5 },
+      // Use an out-of-bounds position so signedDepthToCell returns negative for all cells
+      // (including single mode where the grid center lies inside the one containerRect).
+      lightPos: { x: -1, y: -1 },
     };
   };
 
