@@ -12,20 +12,24 @@ const COL_ROW_MIN = 1;
 const COL_ROW_MAX = 12;
 const GLASS_DEFAULTS: GlassParams = {
   lightDirXY: [1.0, -1.0],
+  keyLightIntensity: 1.0,
+  keyLightZ: 0.85,
   specularLightXY: [-1.0, -1.0],
   specularFollowPointer: true,
   specularPower: 60,
   specularIntensity: 2.0,
-  rimPower: 0.6,
-  rimIntensity: 0.1,
-  flatPow: 3.0,
+  rimPower: 0.3,
+  rimIntensity: 0.3,
+  flatPow: 4.0,
   plateau: 0.1,
   refractionStrength: 4.0,
   edgeSoftness: 4.0,
-  dispersionHueShift: 0.1,
+  dispersionHueShift: 0.2,
   dispersionSaturation: 1.0,
-  dispersionSpread: 1.0,
-  dispersionSharpness: 1.0,
+  dispersionSpread: 0.25,
+  dispersionSharpness: 3.0,
+  dispersionFocus: 0.3,
+  envReflection: 0.5,
   boxLightEnabled: false,
   boxLightIntensity: 0.5,
   boxLightSoftness: 0.8,
@@ -45,6 +49,7 @@ function App() {
   const initialLabels = makeDefaultCellLabels(4, 4);
   const dataRef = useRef<SceneData>({
     lightPos: { x: 0, y: 0 },
+    pointerOverSurface: false,
     cellRects: [],
     containerRects: [],
     cellLabels: initialLabels,
@@ -57,7 +62,13 @@ function App() {
   const [cellLabels, setCellLabels] = useState<CellLabelGrid>(initialLabels);
   const [showDebugShader, setShowDebugShader] = useState(false);
   const [showDebugGrid, setShowDebugGrid] = useState(true);
-  const [controlsExpanded, setControlsExpanded] = useState(true);
+  const [panelGlass, setPanelGlass] = useState(false);
+  const [panelLight, setPanelLight] = useState(false);
+  const [panelGrid, setPanelGrid] = useState(false);
+  const [panelDebug, setPanelDebug] = useState(false);
+  const [singleMode, setSingleMode] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < 768
+  );
 
   useLayoutEffect(() => {
     setCellLabels((prev) =>
@@ -93,6 +104,12 @@ function App() {
           key === "specularFollowPointer"
         )
           return prev;
+        if (key === "keyLightIntensity") {
+          return { ...prev, keyLightIntensity: clamp(n, 0.0, 2.0) };
+        }
+        if (key === "keyLightZ") {
+          return { ...prev, keyLightZ: clamp(n, 0.05, 2.0) };
+        }
         if (key === "boxLightSize" || key === "boxLightPosXY")
           return prev;
         if (key === "boxLightEnabled" || key === "bevelEnabled") return prev;
@@ -143,6 +160,12 @@ function App() {
         }
         if (key === "dispersionSharpness") {
           return { ...prev, dispersionSharpness: clamp(n, 0.0, 3.0) };
+        }
+        if (key === "dispersionFocus") {
+          return { ...prev, dispersionFocus: clamp(n, 0.0, 1.0) };
+        }
+        if (key === "envReflection") {
+          return { ...prev, envReflection: clamp(n, 0.0, 3.0) };
         }
         if (key === "edgeSoftness") {
           return { ...prev, edgeSoftness: clamp(n, 0.2, 4.0) };
@@ -219,21 +242,65 @@ function App() {
       <header className="app__header">
         <div className="app__title-row">
           <h1>shader-tut</h1>
-          <button
-            type="button"
-            className="app__controls-toggle"
-            onClick={() => setControlsExpanded((v) => !v)}
-          >
-            {controlsExpanded ? "Collapse all" : "Expand all"}
-          </button>
         </div>
         <div
-          className={
-            controlsExpanded
-              ? "app__param-groups"
-              : "app__param-groups app__param-groups--collapsed"
-          }
+          className="app__filter-chips"
+          role="toolbar"
+          aria-label="Control panels"
         >
+          <button
+            type="button"
+            className={
+              panelGlass ? "app__chip app__chip--on" : "app__chip"
+            }
+            aria-pressed={panelGlass}
+            onClick={() => setPanelGlass((v) => !v)}
+          >
+            Glass
+          </button>
+          <button
+            type="button"
+            className={
+              panelLight ? "app__chip app__chip--on" : "app__chip"
+            }
+            aria-pressed={panelLight}
+            onClick={() => setPanelLight((v) => !v)}
+          >
+            Light
+          </button>
+          <button
+            type="button"
+            className={
+              panelGrid ? "app__chip app__chip--on" : "app__chip"
+            }
+            aria-pressed={panelGrid}
+            onClick={() => setPanelGrid((v) => !v)}
+          >
+            Grid
+          </button>
+          <button
+            type="button"
+            className={
+              panelDebug ? "app__chip app__chip--on" : "app__chip"
+            }
+            aria-pressed={panelDebug}
+            onClick={() => setPanelDebug((v) => !v)}
+          >
+            Debug
+          </button>
+          <button
+            type="button"
+            className={
+              singleMode ? "app__chip app__chip--on" : "app__chip"
+            }
+            aria-pressed={singleMode}
+            onClick={() => setSingleMode((v) => !v)}
+          >
+            Single
+          </button>
+        </div>
+        <div className="app__param-groups">
+          {panelGrid ? (
           <fieldset className="app__param-group">
             <legend>Grid</legend>
             <div className="app__param-group__body">
@@ -259,6 +326,9 @@ function App() {
             </label>
             </div>
           </fieldset>
+          ) : null}
+          {panelLight ? (
+          <>
           <fieldset className="app__param-group">
             <legend>Key light</legend>
             <div className="app__param-group__body">
@@ -282,6 +352,28 @@ function App() {
                 max="1"
                 value={glassParams.lightDirXY[1]}
                 onChange={onLightDir(1)}
+              />
+            </label>
+            <label className="app__label">
+              Intensity
+              <input
+                type="number"
+                step="0.05"
+                min="0"
+                max="2"
+                value={glassParams.keyLightIntensity}
+                onChange={onGlassParam("keyLightIntensity")}
+              />
+            </label>
+            <label className="app__label">
+              Z (depth)
+              <input
+                type="number"
+                step="0.05"
+                min="0.05"
+                max="2"
+                value={glassParams.keyLightZ}
+                onChange={onGlassParam("keyLightZ")}
               />
             </label>
             </div>
@@ -339,167 +431,6 @@ function App() {
                 type="checkbox"
                 checked={glassParams.specularFollowPointer}
                 onChange={onSpecularFollowPointer}
-              />
-            </label>
-            </div>
-          </fieldset>
-          <fieldset className="app__param-group">
-            <legend>Glass</legend>
-            <div className="app__param-group__body">
-            <label className="app__label">
-              Rim power
-              <input
-                type="number"
-                step="0.1"
-                min="0.1"
-                max="8"
-                value={glassParams.rimPower}
-                onChange={onGlassParam("rimPower")}
-              />
-            </label>
-            <label className="app__label">
-              Rim intensity
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="2"
-                value={glassParams.rimIntensity}
-                onChange={onGlassParam("rimIntensity")}
-              />
-            </label>
-            <label className="app__label">
-              Flat pow
-              <input
-                type="number"
-                step="0.1"
-                min="1"
-                max="8"
-                value={glassParams.flatPow}
-                onChange={onGlassParam("flatPow")}
-              />
-            </label>
-            <label className="app__label">
-              Plateau
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="0.8"
-                value={glassParams.plateau}
-                onChange={onGlassParam("plateau")}
-              />
-            </label>
-            <label className="app__label">
-              Refraction
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="32"
-                value={glassParams.refractionStrength}
-                onChange={onGlassParam("refractionStrength")}
-              />
-            </label>
-            <label className="app__label">
-              Edge soft
-              <input
-                type="number"
-                step="0.1"
-                min="0.2"
-                max="4"
-                value={glassParams.edgeSoftness}
-                onChange={onGlassParam("edgeSoftness")}
-              />
-            </label>
-            <label className="app__label">
-              Disp hue (rad)
-              <input
-                type="number"
-                step="0.05"
-                min="-3.15"
-                max="3.15"
-                value={glassParams.dispersionHueShift}
-                onChange={onGlassParam("dispersionHueShift")}
-              />
-            </label>
-            <label className="app__label">
-              Disp saturate
-              <input
-                type="number"
-                step="0.02"
-                min="0"
-                max="1"
-                value={glassParams.dispersionSaturation}
-                onChange={onGlassParam("dispersionSaturation")}
-              />
-            </label>
-            <label className="app__label">
-              Disp spread
-              <input
-                type="number"
-                step="0.05"
-                min="0.25"
-                max="3"
-                value={glassParams.dispersionSpread}
-                onChange={onGlassParam("dispersionSpread")}
-              />
-            </label>
-            <label className="app__label">
-              Disp sharp
-              <input
-                type="number"
-                step="0.05"
-                min="0"
-                max="3"
-                value={glassParams.dispersionSharpness}
-                onChange={onGlassParam("dispersionSharpness")}
-              />
-            </label>
-            </div>
-          </fieldset>
-          <fieldset className="app__param-group">
-            <legend>Bevel</legend>
-            <div className="app__param-group__body">
-            <label className="app__label">
-              Bevel
-              <input
-                type="checkbox"
-                checked={glassParams.bevelEnabled}
-                onChange={onBevelEnabled}
-              />
-            </label>
-            <label className="app__label">
-              Bevel str
-              <input
-                type="number"
-                step="0.02"
-                min="0"
-                max="1"
-                value={glassParams.bevelStrength}
-                onChange={onGlassParam("bevelStrength")}
-              />
-            </label>
-            <label className="app__label">
-              Bevel px
-              <input
-                type="number"
-                step="0.5"
-                min="1"
-                max="32"
-                value={glassParams.bevelWidthPx}
-                onChange={onGlassParam("bevelWidthPx")}
-              />
-            </label>
-            <label className="app__label">
-              Bevel exp
-              <input
-                type="number"
-                step="0.5"
-                min="1"
-                max="16"
-                value={glassParams.bevelExponent}
-                onChange={onGlassParam("bevelExponent")}
               />
             </label>
             </div>
@@ -583,6 +514,220 @@ function App() {
             </label>
             </div>
           </fieldset>
+          </>
+          ) : null}
+          {panelGlass ? (
+          <>
+          <fieldset className="app__param-group">
+            <legend>Glass</legend>
+            <div className="app__param-group__body">
+            <label
+              className="app__label"
+              title="Fresnel curve exponent: higher = brighter only at grazing edges."
+            >
+              Rim power
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                max="8"
+                value={glassParams.rimPower}
+                onChange={onGlassParam("rimPower")}
+              />
+            </label>
+            <label
+              className="app__label"
+              title="White edge glow where Fresnel is high (silhouette)."
+            >
+              Rim intensity
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="2"
+                value={glassParams.rimIntensity}
+                onChange={onGlassParam("rimIntensity")}
+              />
+            </label>
+            <label className="app__label">
+              Flat pow
+              <input
+                type="number"
+                step="0.1"
+                min="1"
+                max="8"
+                value={glassParams.flatPow}
+                onChange={onGlassParam("flatPow")}
+              />
+            </label>
+            <label className="app__label">
+              Plateau
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="0.8"
+                value={glassParams.plateau}
+                onChange={onGlassParam("plateau")}
+              />
+            </label>
+            <label className="app__label">
+              Refraction
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="32"
+                value={glassParams.refractionStrength}
+                onChange={onGlassParam("refractionStrength")}
+              />
+            </label>
+            <label className="app__label">
+              Edge soft
+              <input
+                type="number"
+                step="0.1"
+                min="0.2"
+                max="4"
+                value={glassParams.edgeSoftness}
+                onChange={onGlassParam("edgeSoftness")}
+              />
+            </label>
+            <label
+              className="app__label"
+              title="Rotates rainbow fringe hues around gray (radians)."
+            >
+              Fringe hue
+              <input
+                type="number"
+                step="0.05"
+                min="-3.15"
+                max="3.15"
+                value={glassParams.dispersionHueShift}
+                onChange={onGlassParam("dispersionHueShift")}
+              />
+            </label>
+            <label
+              className="app__label"
+              title="0 = faint gray fringes, 1 = full saturated rainbow."
+            >
+              Fringe vivid
+              <input
+                type="number"
+                step="0.02"
+                min="0"
+                max="1"
+                value={glassParams.dispersionSaturation}
+                onChange={onGlassParam("dispersionSaturation")}
+              />
+            </label>
+            <label
+              className="app__label"
+              title="How far apart the RGB background samples are spread (wider chromatic blur)."
+            >
+              Split width
+              <input
+                type="number"
+                step="0.05"
+                min="0.25"
+                max="3"
+                value={glassParams.dispersionSpread}
+                onChange={onGlassParam("dispersionSpread")}
+              />
+            </label>
+            <label
+              className="app__label"
+              title="Higher = punchier spectral bands; lower = softer, more blended fringes."
+            >
+              Band purity
+              <input
+                type="number"
+                step="0.05"
+                min="0"
+                max="3"
+                value={glassParams.dispersionSharpness}
+                onChange={onGlassParam("dispersionSharpness")}
+              />
+            </label>
+            <label
+              className="app__label"
+              title="Low = chroma visible toward face center. High = chroma mostly at glancing silhouette."
+            >
+              Edge chroma
+              <input
+                type="number"
+                step="0.05"
+                min="0"
+                max="1"
+                value={glassParams.dispersionFocus}
+                onChange={onGlassParam("dispersionFocus")}
+              />
+            </label>
+            <label
+              className="app__label"
+              title="Cubemap reflection strength (still ramps with Fresnel)."
+            >
+              Env refl
+              <input
+                type="number"
+                step="0.05"
+                min="0"
+                max="3"
+                value={glassParams.envReflection}
+                onChange={onGlassParam("envReflection")}
+              />
+            </label>
+            </div>
+          </fieldset>
+          <fieldset className="app__param-group">
+            <legend>Bevel</legend>
+            <div className="app__param-group__body">
+            <label className="app__label">
+              Bevel
+              <input
+                type="checkbox"
+                checked={glassParams.bevelEnabled}
+                onChange={onBevelEnabled}
+              />
+            </label>
+            <label className="app__label">
+              Bevel str
+              <input
+                type="number"
+                step="0.02"
+                min="0"
+                max="1"
+                value={glassParams.bevelStrength}
+                onChange={onGlassParam("bevelStrength")}
+              />
+            </label>
+            <label className="app__label">
+              Bevel px
+              <input
+                type="number"
+                step="0.5"
+                min="1"
+                max="32"
+                value={glassParams.bevelWidthPx}
+                onChange={onGlassParam("bevelWidthPx")}
+              />
+            </label>
+            <label className="app__label">
+              Bevel exp
+              <input
+                type="number"
+                step="0.5"
+                min="1"
+                max="16"
+                value={glassParams.bevelExponent}
+                onChange={onGlassParam("bevelExponent")}
+              />
+            </label>
+            </div>
+          </fieldset>
+          </>
+          ) : null}
+          {panelDebug ? (
           <fieldset className="app__param-group">
             <legend>Debug</legend>
             <div className="app__param-group__body">
@@ -604,16 +749,18 @@ function App() {
             </label>
             </div>
           </fieldset>
+          ) : null}
         </div>
       </header>
       <div className="scene">
         <ResizableGridOverlay
           dataRef={dataRef}
-          cols={cols}
-          rows={rows}
+          cols={singleMode ? 1 : cols}
+          rows={singleMode ? 1 : rows}
           cellLabels={cellLabels}
           showDebugShader={showDebugShader}
           showDebugGrid={showDebugGrid}
+          singleMode={singleMode}
         />
       </div>
     </div>

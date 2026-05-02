@@ -48,6 +48,7 @@
   /* Parent `.resizable-grid__cells` uses `pointer-events: none` (inheritance); re-enable hits so
    * cell UI (e.g. specular spin on pointerdown) reaches React instead of falling through to WebGL. */
   pointer-events: auto;
+  cursor: default;
   container-type: size;
   box-sizing: border-box;
   /* Never smaller than em/rem floors or split handle reach into the cell content box */
@@ -81,11 +82,13 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  cursor: default;
 }
 
 /* Inner rounded "container": corner radius = half the rect height; min w/h; label padding insets. */
 .resizable-grid__cell-surface {
   box-sizing: border-box;
+  cursor: pointer;
   width: 100%;
   min-width: max(calc(2 * var(--gutter-x)), min-content);
   min-height: max(calc(2 * var(--gutter-y)), min-content);
@@ -118,11 +121,45 @@
   opacity: 0;
 }
 
+/* Pixel hand “reflection” above pointer when over a cell (under split handles). */
+.resizable-grid__pointer-reflection {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.resizable-grid__pointer-reflection__img {
+  position: absolute;
+  width: 44px;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: none;
+  opacity: 0.62;
+  transform: translate(-50%, calc(-100% - 10px)) scaleY(-1);
+  transform-origin: 50% 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.45));
+}
+
+/* Single mode: grid doesn't flex-stretch; explicit width/height applied via inline style. */
+.resizable-grid--single {
+  position: relative;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  min-width: 0;
+  min-height: 0;
+}
+
 /* Splitter layer: internal edges and corners (outer grid follows the scene) */
 .resizable-grid__splits {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 3;
   pointer-events: none;
 }
 
@@ -199,6 +236,35 @@
   user-select: none;
   pointer-events: none;
   font-family: system-ui, sans-serif;
+}
+
+/* Single-mode resize corner: inset from the edge so it's reachable and not cropped. */
+.resizable-grid__split--single-corner {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: nwse-resize;
+  z-index: 3;
+  border-radius: 6px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(10, 12, 18, 0.72);
+  touch-action: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+}
+
+.resizable-grid__split--single-corner:hover,
+.resizable-grid__split--single-corner:focus-visible {
+  background: rgba(80, 160, 255, 0.22);
+  border-color: rgba(120, 200, 255, 0.5);
+  outline: none;
 }
 
 .resizable-grid__debug-overlay {

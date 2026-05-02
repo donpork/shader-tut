@@ -19,7 +19,7 @@
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.5rem;
 }
 
 .app__title-row h1 {
@@ -28,19 +28,40 @@
   font-weight: 600;
 }
 
-.app__controls-toggle {
+.app__filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
+  align-items: center;
+  margin-bottom: 0.65rem;
+}
+
+.app__chip {
   font: inherit;
-  font-size: 0.8rem;
-  padding: 0.35rem 0.65rem;
-  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.32rem 0.75rem;
+  border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.06);
-  color: inherit;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.55);
   cursor: pointer;
 }
 
-.app__controls-toggle:hover {
-  background: rgba(255, 255, 255, 0.1);
+.app__chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.app__chip--on {
+  border-color: rgba(120, 200, 255, 0.45);
+  background: rgba(80, 160, 255, 0.18);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.app__chip--on:hover {
+  background: rgba(80, 160, 255, 0.26);
+  color: #fff;
 }
 
 .app__param-group__body {
@@ -48,10 +69,6 @@
   flex-wrap: wrap;
   gap: 0.65rem 0.85rem;
   align-items: center;
-}
-
-.app__param-groups--collapsed .app__param-group {
-  display: none;
 }
 
 .app__param-groups {
@@ -122,15 +139,11 @@
 }
 
 @media (max-width: 768px) {
-  .app__param-groups {
-    display: none;
-  }
-
-  .app__controls-toggle {
-    display: none;
-  }
-
   .app__header {
     padding: 0.75rem 1rem 0.5rem;
+  }
+
+  .app__filter-chips {
+    margin-bottom: 0.5rem;
   }
 }

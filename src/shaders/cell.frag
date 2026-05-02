@@ -5,6 +5,7 @@ uniform sampler2D uBackground;
 uniform sampler2D uCubeStrip;
 uniform float uEnvMix;
 uniform vec3 uLightDir;
+uniform float uKeyLightIntensity;
 uniform vec3 uSpecularLightDir;
 uniform vec4 uCellRect; // x, y, w, h in top-left scene space
 uniform float uSpecularPower;
@@ -28,6 +29,8 @@ uniform float uDispersionHueShift;
 uniform float uDispersionSaturation;
 uniform float uDispersionSpread;
 uniform float uDispersionSharpness;
+uniform float uDispersionFocus;
+uniform float uEnvReflection;
 
 varying vec2 vTexCoord;
 
@@ -217,7 +220,10 @@ void main() {
   vec2 refractUV = clamp(sceneUV + refractOffset, 0.001, 0.999);
   vec3 singleSampleColor = texture2D(uBackground, refractUV).rgb;
   // Extra spectral blur along silhouette (7 bg taps); blend weight follows Fresnel.
-  float dispersionWeight = smoothstep(0.18, 0.68, fresnel);
+  float focus = clamp(uDispersionFocus, 0.0, 1.0);
+  float dLow = mix(0.06, 0.42, focus);
+  float dHigh = mix(0.42, 0.92, focus);
+  float dispersionWeight = smoothstep(dLow, dHigh, fresnel);
   float dispPx = refractPx * 0.45 * clamp(uDispersionSpread, 0.25, 3.0);
   vec2 dispDir = normalize(N.xy + vec2(1e-6));
   vec2 dispStep = (dispDir * dispPx) / max(uResolution, vec2(1.0));
@@ -238,7 +244,8 @@ void main() {
 
   float rimBand = smoothstep(0.52, 0.98, fresnel) * max(uRimIntensity, 0.0);
   vec3 rim = vec3(rimBand);
-  vec3 envSpec = envColor * (0.3 + 0.7 * fresnel) * uEnvMix;
+  vec3 envSpec =
+    envColor * (0.3 + 0.7 * fresnel) * uEnvMix * max(uEnvReflection, 0.0);
 
   vec2 boxHalf = max(uBoxLightSize * 0.5, vec2(0.001));
   float boxDist = sdBox(sceneUV - uBoxLightPos, boxHalf);
@@ -255,7 +262,7 @@ void main() {
     vec2 Lxy = normalize(L_base.xy + vec2(1e-6));
     float facing = dot(Lxy, -nOut);
     float edgeAmt = facing * expRim * uBevelStrength;
-    bevelTint = vec3(edgeAmt * 0.65);
+    bevelTint = vec3(edgeAmt * 0.65 * max(uKeyLightIntensity, 0.0));
     bevelTint *= mask;
   }
 

@@ -9,13 +9,19 @@ export type CellRect = {
 export type GlassParams = {
   /** Base direction for bevel / rim context (normalized with z in shader). */
   lightDirXY: [number, number];
+  /** Scales bevel shading that keys off `lightDirXY` (0 = flat, 1 ≈ stock). */
+  keyLightIntensity: number;
+  /** Z component of key light before `normalize` (higher = more frontal / less grazing in XY). */
+  keyLightZ: number;
   /** Specular direction in XY (normalized with z in shader). */
   specularLightXY: [number, number];
   /** When true, specular direction tracks pointer position. */
   specularFollowPointer: boolean;
   specularPower: number;
   specularIntensity: number;
+  /** Fresnel exponent on view dot normal: higher = tighter highlight at grazing edges. */
   rimPower: number;
+  /** Bright additive rim where Fresnel is high (edge glow). */
   rimIntensity: number;
   /** Dome profile exponent (>1 flattens center crown). */
   flatPow: number;
@@ -31,6 +37,13 @@ export type GlassParams = {
   dispersionSpread: number;
   /** Sharpens per-tap spectral RGB weights; 1 ≈ stock bases, >1 pushes more saturated rainbow separation. */
   dispersionSharpness: number;
+  /**
+   * Where chromatic blur appears vs Fresnel: 0 = broader (visible toward face center),
+   * 1 = tighter (mostly at glancing silhouette).
+   */
+  dispersionFocus: number;
+  /** Scales cubemap reflection term (still Fresnel-weighted inside the shader). */
+  envReflection: number;
   boxLightEnabled: boolean;
   boxLightIntensity: number;
   boxLightSoftness: number;
@@ -59,6 +72,8 @@ export type SpecularSpinState = {
 export type SceneData = {
   /** Screen space, origin top-left of the scene (canvas) */
   lightPos: { x: number; y: number };
+  /** True while the pointer is inside a cell-surface hit region (for bgLayer cursor reflection). */
+  pointerOverSurface: boolean;
   cellRects: CellRect[];
   containerRects: CellRect[];
   cellLabels: string[][];

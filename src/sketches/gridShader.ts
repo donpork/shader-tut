@@ -1,9 +1,36 @@
 import p5 from "p5";
 import type { MutableRefObject } from "react";
-import type { SceneData } from "../lib/sceneData";
+import type { CellRect, SceneData } from "../lib/sceneData";
 import vert from "../shaders/cell.vert?raw";
 import frag from "../shaders/cell.frag?raw";
 import cubeStripUrl from "../assets/StandardCubeMap.png";
+import cursorImgUrl from "../assets/cursor.svg";
+
+/** GLSL-style smoothstep(edge0, edge1, x). */
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  if (edge1 <= edge0) return x >= edge1 ? 1 : 0;
+  const u = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return u * u * (3 - 2 * u);
+}
+
+/**
+ * Positive: px inside cell — distance to nearest edge (px).
+ * Negative: outside — minus Euclidean distance to rect clamp(p → cell bounds).
+ */
+function signedDepthToCell(px: number, py: number, c: CellRect): number {
+  const qx = Math.min(Math.max(px, c.x), c.x + c.w);
+  const qy = Math.min(Math.max(py, c.y), c.y + c.h);
+  const dx = px - qx;
+  const dy = py - qy;
+  const distOutside = Math.hypot(dx, dy);
+  if (distOutside > 1e-6) return -distOutside;
+  return Math.min(
+    px - c.x,
+    c.x + c.w - px,
+    py - c.y,
+    c.y + c.h - py
+  );
+}
 
 /** Linear t∈[0,1] → eased phase∈[0,1], exponential ease-in-out (Penner). */
 function expoEaseInOut01(t: number): number {
@@ -34,6 +61,10 @@ export function createGridShaderSketch(
     let bgLayer: p5.Graphics;
     let cubeStrip: p5.Image | null = null;
     let envLoadAttempted = false;
+    let cursorImg: p5.Image | null = null;
+    let cursorImgLoadAttempted = false;
+    /** Last pointer-driven specular direction per cell id; persists when pointer leaves. */
+    const lastSpecularXY = new Map<string, [number, number]>();
 
     const drawBackgroundLayer = () => {
       const d = dataRef.current;
@@ -55,6 +86,15 @@ export function createGridShaderSketch(
         bgLayer.fill(234, 244, 255, 225);
         bgLayer.text(label, c.x + c.w * 0.5, c.y + c.h * 0.5);
       }
+      if (d.pointerOverSurface && cursorImg) {
+        const imgW = 44;
+        const imgH = Math.round(imgW * (cursorImg.height / Math.max(cursorImg.width, 1)));
+        bgLayer.push();
+        bgLayer.tint(255, 90);
+        bgLayer.image(cursorImg, d.lightPos.x - imgW * 0.5, d.lightPos.y - imgH * 0.5, imgW, imgH);
+        bgLayer.noTint();
+        bgLayer.pop();
+      }
     };
 
     p.setup = () => {
@@ -71,12 +111,16 @@ export function createGridShaderSketch(
         envLoadAttempted = true;
         p.loadImage(
           cubeStripUrl,
-          (img) => {
-            cubeStrip = img;
-          },
-          () => {
-            // Keep fallback lighting path if image load fails.
-          }
+          (img) => { cubeStrip = img; },
+          () => { /* Keep fallback lighting path if image load fails. */ }
+        );
+      }
+      if (!cursorImgLoadAttempted) {
+        cursorImgLoadAttempted = true;
+        p.loadImage(
+          cursorImgUrl,
+          (img) => { cursorImg = img; },
+          () => { /* Cursor reflection unavailable — silently ignore. */ }
         );
       }
     };
@@ -105,11 +149,11 @@ export function createGridShaderSketch(
       p.shader(sh);
       sh.setUniform("uResolution", [p.width, p.height]);
       sh.setUniform("uEnvMix", cubeStrip ? 1.0 : 0.0);
-      sh.setUniform("uLightDir", [lightX, lightY, 0.85]);
+      sh.setUniform("uLightDir", [lightX, lightY, gp.keyLightZ]);
+      sh.setUniform("uKeyLightIntensity", gp.keyLightIntensity);
       sh.setUniform("uSpecularPower", gp.specularPower);
       sh.setUniform("uSpecularIntensity", gp.specularIntensity);
       sh.setUniform("uRimPower", gp.rimPower);
-      sh.setUniform("uRimIntensity", gp.rimIntensity);
       sh.setUniform("uFlatPow", gp.flatPow);
       sh.setUniform("uPlateau", gp.plateau);
       sh.setUniform("uRefractionStrength", gp.refractionStrength);
@@ -118,6 +162,8 @@ export function createGridShaderSketch(
       sh.setUniform("uDispersionSaturation", gp.dispersionSaturation);
       sh.setUniform("uDispersionSpread", gp.dispersionSpread);
       sh.setUniform("uDispersionSharpness", gp.dispersionSharpness);
+      sh.setUniform("uDispersionFocus", gp.dispersionFocus);
+      sh.setUniform("uEnvReflection", gp.envReflection);
       sh.setUniform("uBevelEnabled", gp.bevelEnabled ? 1 : 0);
       sh.setUniform("uBevelStrength", gp.bevelStrength);
       sh.setUniform("uBevelWidthPx", Math.max(0.5, gp.bevelWidthPx));
@@ -129,6 +175,17 @@ export function createGridShaderSketch(
       sh.setUniform("uBoxLightPos", gp.boxLightPosXY);
       for (let i = 0; i < scene.containerRects.length; i += 1) {
         const c = scene.containerRects[i]!;
+        const px = scene.lightPos.x;
+        const py = scene.lightPos.y;
+        const pointerInCell =
+          px >= c.x && px <= c.x + c.w && py >= c.y && py <= c.y + c.h;
+        const dMax = Math.min(c.w, c.h) * 0.5;
+        const dSigned = signedDepthToCell(px, py, c);
+        const dEff = Math.max(dSigned, 0);
+        const t =
+          dMax > 1e-6 ? smoothstep(0, dMax, dEff) : 1;
+        const rimIntensity = gp.rimIntensity * (1.0 + t * 3.0);
+        sh.setUniform("uRimIntensity", rimIntensity);
         let specularXY: [number, number] = gp.specularLightXY;
         const spin = scene.specularSpin;
         if (spin && spin.cellId === c.id) {
@@ -145,12 +202,7 @@ export function createGridShaderSketch(
             sx * sinT + sy * cosT,
           ];
         } else if (gp.specularFollowPointer) {
-          const inside =
-            scene.lightPos.x >= c.x &&
-            scene.lightPos.x <= c.x + c.w &&
-            scene.lightPos.y >= c.y &&
-            scene.lightPos.y <= c.y + c.h;
-          if (inside) {
+          if (pointerInCell) {
             const cx = c.x + c.w * 0.5;
             const cy = c.y + c.h * 0.5;
             const localX = (scene.lightPos.x - cx) / Math.max(c.w * 0.5, 1.0);
@@ -160,6 +212,10 @@ export function createGridShaderSketch(
               -Math.max(-1.0, Math.min(1.0, localX)),
               -Math.max(-1.0, Math.min(1.0, localY)),
             ];
+            lastSpecularXY.set(c.id, specularXY);
+          } else {
+            // Keep last pointer-driven direction; fall back to panel default only if never set.
+            specularXY = lastSpecularXY.get(c.id) ?? gp.specularLightXY;
           }
         }
         const [specX, specY] = normalize2(specularXY[0], specularXY[1]);

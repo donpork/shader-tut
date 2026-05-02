@@ -114,6 +114,9 @@ function enforceTrackBounds(
   return out;
 }
 
+const MIN_SINGLE_W = 160;
+const MIN_SINGLE_H = 120;
+
 type Drag =
   | {
       kind: "v";
@@ -141,6 +144,15 @@ type Drag =
       startY: number;
       pointerId: number;
       handle: HTMLElement;
+    }
+  | {
+      kind: "s";
+      startX: number;
+      startY: number;
+      startW: number;
+      startH: number;
+      pointerId: number;
+      handle: HTMLElement;
     };
 
 type Props = {
@@ -151,6 +163,7 @@ type Props = {
   cellLabels: CellLabelGrid;
   showDebugShader: boolean;
   showDebugGrid: boolean;
+  singleMode: boolean;
 };
 
 function cumToSplitLeft(fr: readonly number[], splitAfterCol: number): number {
@@ -170,6 +183,7 @@ export function ResizableGridOverlay({
   cellLabels,
   showDebugShader,
   showDebugGrid,
+  singleMode,
 }: Props) {
   const c = Math.min(12, Math.max(1, Math.floor(cols)));
   const r = Math.min(12, Math.max(1, Math.floor(rows)));
@@ -188,6 +202,8 @@ export function ResizableGridOverlay({
   } | null>(null);
   const [debugShaderRects, setDebugShaderRects] = useState<CellRect[]>([]);
   const [debugGridRects, setDebugGridRects] = useState<CellRect[]>([]);
+  const [singleW, setSingleW] = useState(0);
+  const [singleH, setSingleH] = useState(0);
 
   const drag = useRef<Drag | null>(null);
   const moveListener = useRef<((e: PointerEvent) => void) | null>(null);
@@ -210,6 +226,15 @@ export function ResizableGridOverlay({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // When entering single mode, initialize to the full available (parent) size.
+  useLayoutEffect(() => {
+    if (!singleMode) return;
+    const parent = rootRef.current?.parentElement;
+    if (!parent) return;
+    setSingleW(parent.clientWidth);
+    setSingleH(parent.clientHeight);
+  }, [singleMode]);
 
   const { w, h } = box;
 
@@ -414,6 +439,15 @@ export function ResizableGridOverlay({
 
   const onRootPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     updateLightFromClient(e.clientX, e.clientY);
+    const root = rootRef.current;
+    if (!root) return;
+    const raw = e.target;
+    const hitEl =
+      raw instanceof Element ? raw : raw instanceof Node ? raw.parentElement : null;
+    const surface = hitEl?.closest(".resizable-grid__cell-surface") ?? null;
+    const overSurface =
+      surface !== null && surface instanceof HTMLElement && root.contains(surface);
+    dataRef.current = { ...dataRef.current, pointerOverSurface: overSurface };
   };
 
   const onRootPointerLeave = () => {
@@ -421,6 +455,7 @@ export function ResizableGridOverlay({
     if (!el) return;
     dataRef.current = {
       ...dataRef.current,
+      pointerOverSurface: false,
       lightPos: { x: el.clientWidth * 0.5, y: el.clientHeight * 0.5 },
     };
   };
@@ -606,6 +641,37 @@ export function ResizableGridOverlay({
       window.addEventListener("pointercancel", onPointerEnd, true);
     };
 
+  const onPointerDownSingle = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const handle = e.currentTarget as HTMLElement;
+    handle.setPointerCapture(e.pointerId);
+    drag.current = {
+      kind: "s",
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: singleW,
+      startH: singleH,
+      pointerId: e.pointerId,
+      handle,
+    };
+    const onMove = (ev: PointerEvent) => {
+      const d = drag.current;
+      if (!d || d.kind !== "s" || ev.pointerId !== d.pointerId) return;
+      const parent = rootRef.current?.parentElement;
+      const maxW = parent ? parent.clientWidth : d.startW;
+      const maxH = parent ? parent.clientHeight : d.startH;
+      setSingleW(Math.max(MIN_SINGLE_W, Math.min(maxW, d.startW + ev.clientX - d.startX)));
+      setSingleH(Math.max(MIN_SINGLE_H, Math.min(maxH, d.startH + ev.clientY - d.startY)));
+    };
+    const onPointerEnd = (ev: PointerEvent) => { endDrag(ev); };
+    moveListener.current = onMove;
+    endPointerListener.current = onPointerEnd;
+    document.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onPointerEnd, true);
+    window.addEventListener("pointercancel", onPointerEnd, true);
+  };
+
   /* `1fr` is `minmax(0,1fr)` in browsers — tracks can shrink past item min; min-content enforces 2em+text+2em. */
   const gridStyle = {
     gridTemplateColumns: colFracs
@@ -616,10 +682,18 @@ export function ResizableGridOverlay({
       .join(" "),
   } as const;
 
+  const rootClassName = singleMode
+    ? "resizable-grid resizable-grid--single"
+    : "resizable-grid resizable-grid--fill";
+  const rootStyle = singleMode && singleW > 0
+    ? ({ width: singleW, height: singleH } as const)
+    : undefined;
+
   return (
     <div
       ref={rootRef}
-      className="resizable-grid resizable-grid--fill"
+      className={rootClassName}
+      style={rootStyle}
       onPointerMove={onRootPointerMove}
       onPointerLeave={onRootPointerLeave}
     >
@@ -722,6 +796,16 @@ export function ResizableGridOverlay({
             ))
           ).flat()}
       </div>
+      {singleMode && (
+        <button
+          type="button"
+          className="resizable-grid__split resizable-grid__split--single-corner"
+          aria-label="Resize single cell"
+          onPointerDown={onPointerDownSingle}
+        >
+          <span className="resizable-grid__split-plus" aria-hidden>+</span>
+        </button>
+      )}
       {(showDebugGrid || showDebugShader) && (
         <div className="resizable-grid__debug-overlay" aria-hidden>
           {showDebugGrid &&
