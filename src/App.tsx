@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent } from "react";
 import { ResizableGridOverlay } from "./components/ResizableGridOverlay";
 import { makeLabelsFromPreset } from "./lib/cellLabelGrid";
 import {
@@ -78,6 +78,22 @@ function App() {
   const [singleMode, setSingleMode] = useState(
     () => typeof window !== "undefined" && window.innerWidth < 768
   );
+  const [isMobile, setIsMobile] = useState(
+    () =>
+      typeof window !== "undefined"
+      && window.matchMedia("(max-width: 768px)").matches
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 768px)");
+    const onChange = (ev: MediaQueryListEvent) => {
+      setIsMobile(ev.matches);
+    };
+    setIsMobile(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   useLayoutEffect(() => {
     setCellLabels(makeLabelsFromPreset(activePreset));
@@ -249,46 +265,50 @@ function App() {
           role="toolbar"
           aria-label="Control panels"
         >
-          <button
-            type="button"
-            className={
-              panelGlass ? "app__chip app__chip--on" : "app__chip"
-            }
-            aria-pressed={panelGlass}
-            onClick={() => setPanelGlass((v) => !v)}
-          >
-            Glass
-          </button>
-          <button
-            type="button"
-            className={
-              panelLight ? "app__chip app__chip--on" : "app__chip"
-            }
-            aria-pressed={panelLight}
-            onClick={() => setPanelLight((v) => !v)}
-          >
-            Light
-          </button>
-          <button
-            type="button"
-            className={
-              panelGrid ? "app__chip app__chip--on" : "app__chip"
-            }
-            aria-pressed={panelGrid}
-            onClick={() => setPanelGrid((v) => !v)}
-          >
-            Grid
-          </button>
-          <button
-            type="button"
-            className={
-              panelDebug ? "app__chip app__chip--on" : "app__chip"
-            }
-            aria-pressed={panelDebug}
-            onClick={() => setPanelDebug((v) => !v)}
-          >
-            Debug
-          </button>
+          {!isMobile ? (
+            <>
+              <button
+                type="button"
+                className={
+                  panelGlass ? "app__chip app__chip--on" : "app__chip"
+                }
+                aria-pressed={panelGlass}
+                onClick={() => setPanelGlass((v) => !v)}
+              >
+                Glass
+              </button>
+              <button
+                type="button"
+                className={
+                  panelLight ? "app__chip app__chip--on" : "app__chip"
+                }
+                aria-pressed={panelLight}
+                onClick={() => setPanelLight((v) => !v)}
+              >
+                Light
+              </button>
+              <button
+                type="button"
+                className={
+                  panelGrid ? "app__chip app__chip--on" : "app__chip"
+                }
+                aria-pressed={panelGrid}
+                onClick={() => setPanelGrid((v) => !v)}
+              >
+                Grid
+              </button>
+              <button
+                type="button"
+                className={
+                  panelDebug ? "app__chip app__chip--on" : "app__chip"
+                }
+                aria-pressed={panelDebug}
+                onClick={() => setPanelDebug((v) => !v)}
+              >
+                Debug
+              </button>
+            </>
+          ) : null}
           <button
             type="button"
             className={
@@ -300,6 +320,7 @@ function App() {
             Single
           </button>
         </div>
+        {!isMobile ? (
         <div className="app__param-groups">
           {panelGrid ? (
           <fieldset className="app__param-group">
@@ -761,6 +782,7 @@ function App() {
           </fieldset>
           ) : null}
         </div>
+        ) : null}
       </header>
       <div className="scene">
         <ResizableGridOverlay

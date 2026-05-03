@@ -340,3 +340,18 @@
   border: 0.5px solid #f00;
   box-shadow: none;
 }
+
+
+@media (max-width: 768px) {
+  .resizable-grid--single {
+    touch-action: none;
+    overscroll-behavior: contain;
+  }
+
+  .resizable-grid--single .resizable-grid__cell-text {
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
