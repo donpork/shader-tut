@@ -1,15 +1,13 @@
 import { useLayoutEffect, useRef, useState, type ChangeEvent } from "react";
 import { ResizableGridOverlay } from "./components/ResizableGridOverlay";
+import { makeLabelsFromPreset } from "./lib/cellLabelGrid";
 import {
-  makeDefaultCellLabels,
-  resizeLabelGrid,
-  type CellLabelGrid,
-} from "./lib/cellLabelGrid";
+  ALL_PRESETS,
+  PRESET_SEQUENTIAL,
+  type LayoutPreset,
+} from "./lib/layoutPreset";
 import type { GlassParams, SceneData } from "./lib/sceneData";
 import "./App.css";
-
-const COL_ROW_MIN = 1;
-const COL_ROW_MAX = 12;
 const GLASS_DEFAULTS: GlassParams = {
   lightDirXY: [1.0, -1.0],
   keyLightIntensity: 1.0,
@@ -29,7 +27,7 @@ const GLASS_DEFAULTS: GlassParams = {
   dispersionSpread: 0.25,
   dispersionSharpness: 3.0,
   dispersionFocus: 0.3,
-  envReflection: 0.5,
+  envReflection: 0.4,
   boxLightEnabled: false,
   boxLightIntensity: 0.5,
   boxLightSoftness: 0.8,
@@ -46,7 +44,8 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function App() {
-  const initialLabels = makeDefaultCellLabels(4, 4);
+  const initialPreset = PRESET_SEQUENTIAL;
+  const initialLabels = makeLabelsFromPreset(initialPreset);
   const dataRef = useRef<SceneData>({
     lightPos: { x: 0, y: 0 },
     pointerOverSurface: false,
@@ -65,12 +64,11 @@ function App() {
     specularSpin: null,
     specularModulation: null,
   });
-  const [cols, setCols] = useState(4);
-  const [rows, setRows] = useState(4);
+  const [activePreset, setActivePreset] = useState<LayoutPreset>(initialPreset);
   const [glassParams, setGlassParams] = useState<GlassParams>(GLASS_DEFAULTS);
-  const [cellLabels, setCellLabels] = useState<CellLabelGrid>(initialLabels);
+  const [cellLabels, setCellLabels] = useState<Record<string, string>>(initialLabels);
   const [showDebugShader, setShowDebugShader] = useState(false);
-  const [showDebugGrid, setShowDebugGrid] = useState(true);
+  const [showDebugGrid, setShowDebugGrid] = useState(false);
   const [panelGlass, setPanelGlass] = useState(false);
   const [panelLight, setPanelLight] = useState(false);
   const [panelGrid, setPanelGrid] = useState(false);
@@ -80,10 +78,8 @@ function App() {
   );
 
   useLayoutEffect(() => {
-    setCellLabels((prev) =>
-      resizeLabelGrid(prev, cols, rows, (row, col) => `R${row + 1}C${col + 1}`)
-    );
-  }, [cols, rows]);
+    setCellLabels(makeLabelsFromPreset(activePreset));
+  }, [activePreset]);
 
   useLayoutEffect(() => {
     dataRef.current = { ...dataRef.current, glassParams };
@@ -92,15 +88,6 @@ function App() {
   useLayoutEffect(() => {
     dataRef.current = { ...dataRef.current, cellLabels };
   }, [cellLabels]);
-
-  const onColRow = (key: "cols" | "rows", value: number) => {
-    const v = Math.min(
-      COL_ROW_MAX,
-      Math.max(COL_ROW_MIN, Math.floor(value))
-    );
-    if (key === "cols") setCols(v);
-    else setRows(v);
-  };
 
   const onGlassParam =
     (key: keyof GlassParams) => (e: ChangeEvent<HTMLInputElement>) => {
@@ -313,26 +300,21 @@ function App() {
           <fieldset className="app__param-group">
             <legend>Grid</legend>
             <div className="app__param-group__body">
-            <label className="app__label">
-              Columns
-              <input
-                type="number"
-                min={COL_ROW_MIN}
-                max={COL_ROW_MAX}
-                value={cols}
-                onChange={(e) => onColRow("cols", Number(e.target.value))}
-              />
-            </label>
-            <label className="app__label">
-              Rows
-              <input
-                type="number"
-                min={COL_ROW_MIN}
-                max={COL_ROW_MAX}
-                value={rows}
-                onChange={(e) => onColRow("rows", Number(e.target.value))}
-              />
-            </label>
+            {ALL_PRESETS.map((preset) => (
+              <button
+                key={preset.name}
+                type="button"
+                className={
+                  activePreset === preset
+                    ? "app__chip app__chip--on"
+                    : "app__chip"
+                }
+                aria-pressed={activePreset === preset}
+                onClick={() => setActivePreset(preset)}
+              >
+                {preset.name}
+              </button>
+            ))}
             </div>
           </fieldset>
           ) : null}
@@ -764,8 +746,7 @@ function App() {
       <div className="scene">
         <ResizableGridOverlay
           dataRef={dataRef}
-          cols={singleMode ? 1 : cols}
-          rows={singleMode ? 1 : rows}
+          layout={activePreset}
           cellLabels={cellLabels}
           showDebugShader={showDebugShader}
           showDebugGrid={showDebugGrid}

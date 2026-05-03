@@ -1,18 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { makeDefaultCellLabels, resizeLabelGrid } from "./cellLabelGrid";
+import { makeLabelsFromPreset } from "./cellLabelGrid";
+import { PRESET_SEQUENTIAL, PRESET_CORNER } from "./layoutPreset";
 
-describe("cellLabelGrid", () => {
-  it("makeDefaultCellLabels", () => {
-    const g = makeDefaultCellLabels(2, 3);
-    expect(g).toHaveLength(3);
-    expect(g[0]).toEqual(["R1C1", "R1C2"]);
-    expect(g[1][0]).toBe("R2C1");
+describe("makeLabelsFromPreset", () => {
+  it("generates labels for normal and super cells", () => {
+    const labels = makeLabelsFromPreset(PRESET_SEQUENTIAL);
+    expect(labels["0-1"]).toBe("R1C2");
+    expect(labels["1-1"]).toBe("R2C2"); // Quad super
   });
 
-  it("resizeLabelGrid keeps existing and fills", () => {
-    const g = makeDefaultCellLabels(2, 2);
-    const n = resizeLabelGrid(g, 3, 2, (r, c) => `N${r}${c}`);
-    expect(n[0][0]).toBe("R1C1");
-    expect(n[0][2]).toBe("N02");
+  it("generates labels for micro sub-cells", () => {
+    const labels = makeLabelsFromPreset(PRESET_SEQUENTIAL);
+    // (0,0) is µ2v — sub-cells should be labeled with .1 and .2
+    expect(labels["0-0-m-0"]).toBe("R1C1.1");
+    expect(labels["0-0-m-1"]).toBe("R1C1.2");
+  });
+
+  it("skips empty cells", () => {
+    const labels = makeLabelsFromPreset(PRESET_CORNER);
+    expect(labels["0-0"]).toBeUndefined(); // empty 2×2
   });
 });

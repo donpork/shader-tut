@@ -102,7 +102,8 @@ export type SceneData = {
   rimShortPulseRampMs: number | null;
   cellRects: CellRect[];
   containerRects: CellRect[];
-  cellLabels: string[][];
+  /** Keyed by cell ID ("r-c") or micro sub-cell ID ("r-c-m-i"). */
+  cellLabels: Record<string, string>;
   glassParams: GlassParams;
   /** When set, that cell’s spec direction rotates once from start direction; sketch clears when done. */
   specularSpin: SpecularSpinState | null;

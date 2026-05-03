@@ -8,7 +8,6 @@ import {
   type MutableRefObject,
 } from "react";
 import type { CellRect, SceneData } from "../lib/sceneData";
-import { splitGridRects } from "../lib/splitGridRects";
 // Splits cascade along a row/column: after the two neighbors of a handle, extra space is taken
 // from tracks farther out (e.g. to the left when moving a line left and the inner track is at min).
 import {
@@ -16,7 +15,7 @@ import {
   renormalizeToSum,
 } from "../lib/applyTrackSplitDeltas";
 import { ShaderCanvas } from "./ShaderCanvas";
-import type { CellLabelGrid } from "../lib/cellLabelGrid";
+import type { LayoutPreset } from "../lib/layoutPreset";
 import "./ResizableGridOverlay.css";
 
 /**
@@ -27,6 +26,8 @@ import "./ResizableGridOverlay.css";
 const MIN_COL_PX = 88;
 const MIN_ROW_PX = 72;
 const MAX_TRACK_FRACTION = 0.5;
+/** Must match `gap` on `.resizable-grid__micro-container` in ResizableGridOverlay.css. */
+const MICRO_GAP_PX = 2;
 /** One full specular rotation in the shader after a cell surface click. */
 const SPECULAR_SPIN_DURATION_MS = 350;
 const SPECULAR_MODULATION_DECAY_MS = 500;
@@ -48,6 +49,84 @@ function makeUniformFracs(n: number): number[] {
 function minTrackPx(ideal: number, totalPx: number, count: number): number {
   if (count < 1) return 0;
   return Math.max(0, Math.min(ideal, totalPx / count - 0.1));
+}
+
+/**
+ * Per-track minimum widths for a layout's columns.
+ * A horizontal micro cell occupies count sub-cells + gaps, so its track needs
+ * count × base + (count−1) × 2px at minimum.
+ */
+function computeColMinima(layout: LayoutPreset, baseMin: number): number[] {
+  const minima = Array.from({ length: layout.cols }, () => baseMin);
+  for (const cell of layout.cells) {
+    if (cell.type === "micro" && cell.microSplit === "h" && cell.colSpan === 1) {
+      const count = cell.microCount ?? 2;
+      minima[cell.col] = Math.max(
+        minima[cell.col],
+        count * baseMin + (count - 1) * MICRO_GAP_PX
+      );
+    }
+  }
+  return minima;
+}
+
+/**
+ * Per-track minimum heights for a layout's rows.
+ * A vertical micro cell occupies count sub-cells + gaps.
+ */
+function computeRowMinima(layout: LayoutPreset, baseMin: number): number[] {
+  const minima = Array.from({ length: layout.rows }, () => baseMin);
+  for (const cell of layout.cells) {
+    if (cell.type === "micro" && cell.microSplit === "v" && cell.rowSpan === 1) {
+      const count = cell.microCount ?? 2;
+      minima[cell.row] = Math.max(
+        minima[cell.row],
+        count * baseMin + (count - 1) * MICRO_GAP_PX
+      );
+    }
+  }
+  return minima;
+}
+
+/**
+ * After enforceTrackBounds (which uses a uniform minimum), raise any track that
+ * is still below its own per-track lower bound.  The extra space is taken
+ * proportionally from tracks that sit above their lower bound.
+ * Sum is preserved.
+ */
+function applyPerTrackFloor(
+  tracksPx: number[],
+  totalPx: number,
+  lowerBounds: number[]
+): number[] {
+  const out = tracksPx.slice();
+  const n = out.length;
+  const eps = 1e-6;
+
+  // Cap each lower bound so the constraints are collectively feasible.
+  const sumLo = lowerBounds.reduce((a, v) => a + v, 0);
+  const scale = sumLo > totalPx + eps ? totalPx / sumLo : 1;
+  const lo = lowerBounds.map((v) => v * scale);
+
+  for (let iter = 0; iter < n + 2; iter++) {
+    let deficit = 0;
+    for (let i = 0; i < n; i++) {
+      if (out[i] < lo[i] - eps) {
+        deficit += lo[i] - out[i];
+        out[i] = lo[i];
+      }
+    }
+    if (deficit < eps) break;
+    // Distribute deficit by taking from tracks above their lower bound.
+    const donors = out.map((v, i) => ({ i, room: v - lo[i] })).filter((x) => x.room > eps);
+    if (donors.length === 0) break;
+    const roomSum = donors.reduce((a, x) => a + x.room, 0);
+    const take = Math.min(deficit, roomSum);
+    for (const d of donors) {
+      out[d.i] -= take * (d.room / roomSum);
+    }
+  }
+  return out;
 }
 
 function enforceTrackBounds(
@@ -167,10 +246,9 @@ type Drag =
 
 type Props = {
   dataRef: MutableRefObject<SceneData>;
-  cols: number;
-  rows: number;
-  /** [row][col] cell copy; outer grid alignment matches p5 `cellRects` (DOM only, not p5). */
-  cellLabels: CellLabelGrid;
+  layout: LayoutPreset;
+  /** Keyed by cell ID or micro sub-cell ID; drives label text in cells and the bgLayer. */
+  cellLabels: Record<string, string>;
   showDebugShader: boolean;
   showDebugGrid: boolean;
   singleMode: boolean;
@@ -188,15 +266,14 @@ function cumToSplitLeft(fr: readonly number[], splitAfterCol: number): number {
  */
 export function ResizableGridOverlay({
   dataRef,
-  cols,
-  rows,
+  layout,
   cellLabels,
   showDebugShader,
   showDebugGrid,
   singleMode,
 }: Props) {
-  const c = Math.min(12, Math.max(1, Math.floor(cols)));
-  const r = Math.min(12, Math.max(1, Math.floor(rows)));
+  const c = layout.cols;
+  const r = layout.rows;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const cellsRef = useRef<HTMLDivElement | null>(null);
@@ -223,7 +300,7 @@ export function ResizableGridOverlay({
     setColFracs(makeUniformFracs(c));
     setRowFracs(makeUniformFracs(r));
     setMeasSplits(null);
-  }, [c, r]);
+  }, [layout, c, r]);
 
   useLayoutEffect(() => {
     const el = rootRef.current;
@@ -273,8 +350,10 @@ export function ResizableGridOverlay({
     measSplits && measSplits.h.length === r - 1 ? measSplits.h : frSplitH;
 
   /**
-   * `cellRects` and split handles from laid-out cell nodes so they track CSS min width/height
-   * (2em+text+2em, 1em+text+1em) when grid tracks are content-aware; falls back to fr math.
+   * Measures each layout cell from the DOM and pushes `cellRects` / `containerRects` into the
+   * dataRef. Empty cells are excluded from both arrays. Micro cells produce one cellRect for the
+   * container and one containerRect per sub-cell. Split handle positions are derived from the
+   * first non-empty, non-spanning cell found at each seam boundary.
    */
   const measureAndPushScene = useCallback(() => {
     const el = rootRef.current;
@@ -284,61 +363,58 @@ export function ResizableGridOverlay({
       setDebugGridRects(cellRects);
       setDebugShaderRects(containerRects);
     };
-    const pw = el ? el.clientWidth : 0;
-    const ph = el ? el.clientHeight : 0;
-    if (!el || colFracs.length !== c || rowFracs.length !== r) {
+    if (!el || !grid) {
       setMeasSplits(null);
-      if (el && pw > 0 && ph > 0) {
-        const fallbackRects = splitGridRects(colFracs, rowFracs, pw, ph);
-        setSceneRects(fallbackRects, fallbackRects);
-      } else {
-        setSceneRects([], []);
-      }
+      setSceneRects([], []);
       return;
     }
+    const pw = el.clientWidth;
+    const ph = el.clientHeight;
     if (pw <= 0 || ph <= 0) {
       setMeasSplits(null);
       setSceneRects([], []);
       return;
     }
-    if (!grid) {
-      setMeasSplits(null);
-      const fallbackRects = splitGridRects(colFracs, rowFracs, pw, ph);
-      setSceneRects(fallbackRects, fallbackRects);
-      return;
-    }
-    const nodes = grid.querySelectorAll<HTMLElement>(".resizable-grid__cell");
-    if (nodes.length !== c * r) {
-      setMeasSplits(null);
-      const fallbackRects = splitGridRects(colFracs, rowFracs, pw, ph);
-      setSceneRects(fallbackRects, fallbackRects);
-      return;
-    }
     const rootRect = el.getBoundingClientRect();
     const rects: CellRect[] = [];
     const containerRects: CellRect[] = [];
-    for (let row = 0; row < r; row++) {
-      for (let col = 0; col < c; col++) {
-        const i = row * c + col;
-        const n = nodes[i]!;
-        const id = `${row}-${col}`;
-        const nr = n.getBoundingClientRect();
-        const cellRect = {
-          id,
-          x: nr.left - rootRect.left,
-          y: nr.top - rootRect.top,
-          w: nr.width,
-          h: nr.height,
-        };
-        rects.push(cellRect);
-        const surface = n.querySelector<HTMLElement>(".resizable-grid__cell-surface");
-        if (!surface) {
-          containerRects.push(cellRect);
-          continue;
-        }
-        const sr = surface.getBoundingClientRect();
+
+    for (const cell of layout.cells) {
+      if (cell.type === "empty") continue;
+      const cellEl = grid.querySelector<HTMLElement>(`[data-cell-id="${cell.id}"]`);
+      if (!cellEl) continue;
+      const nr = cellEl.getBoundingClientRect();
+      const cellRect: CellRect = {
+        id: cell.id,
+        x: nr.left - rootRect.left,
+        y: nr.top - rootRect.top,
+        w: nr.width,
+        h: nr.height,
+      };
+      rects.push(cellRect);
+
+      if (cell.type === "micro") {
+        // Sub-cells use `flex: 1 1 0; min-width: 0` so CSS subdivides them equally and they
+        // can't overflow the container. Measuring each sub-cell directly gives the JS rect
+        // exact pixel parity with the CSS-rendered surface (no subpixel mismatch).
+        const microEls = cellEl.querySelectorAll<HTMLElement>(
+          ".resizable-grid__micro-cell"
+        );
+        microEls.forEach((ms, i) => {
+          const sr = ms.getBoundingClientRect();
+          containerRects.push({
+            id: `${cell.id}-m-${i}`,
+            x: sr.left - rootRect.left,
+            y: sr.top - rootRect.top,
+            w: sr.width,
+            h: sr.height,
+          });
+        });
+      } else {
+        const surface = cellEl.querySelector<HTMLElement>(".resizable-grid__cell-surface");
+        const sr = surface ? surface.getBoundingClientRect() : nr;
         containerRects.push({
-          id,
+          id: cell.id,
           x: sr.left - rootRect.left,
           y: sr.top - rootRect.top,
           w: sr.width,
@@ -347,33 +423,50 @@ export function ResizableGridOverlay({
       }
     }
     setSceneRects(rects, containerRects);
-    /* V seam: BCR to device pixels. H seam: row line matches layout; offset box often snaps
-     * ~0.5px above getBoundingClientRect().bottom, so the + sat slightly below. Prefer
-     * offsetTop+offsetHeight from the cells grid (same origin as splits when both inset:0). */
+
+    /* Measure seam positions for split handle placement.
+     * For each seam at column i: find a non-empty cell at col=i with colSpan=1 and read its right edge.
+     * For each seam at row j:  find a non-empty cell at row=j with rowSpan=1 and read its bottom edge. */
     const splits = splitsRef.current;
     const sr = splits?.getBoundingClientRect() ?? el.getBoundingClientRect();
     const v: number[] = [];
     if (c > 1) {
       for (let i = 0; i < c - 1; i++) {
-        const a = nodes[i] as HTMLElement;
-        const br = a.getBoundingClientRect();
-        v.push(br.right - sr.left);
+        const seam = layout.cells.find(
+          (cell) => cell.col === i && cell.colSpan === 1 && cell.type !== "empty"
+        );
+        if (seam) {
+          const seamEl = grid.querySelector<HTMLElement>(`[data-cell-id="${seam.id}"]`);
+          if (seamEl) {
+            v.push(seamEl.getBoundingClientRect().right - sr.left);
+            continue;
+          }
+        }
+        v.push(cumToSplitLeft(colFracs, i) * pw);
       }
     }
     const hS: number[] = [];
     if (r > 1) {
       for (let j = 0; j < r - 1; j++) {
-        const a = nodes[j * c] as HTMLElement;
-        if (a.offsetParent === grid) {
-          hS.push(a.offsetTop + a.offsetHeight);
-        } else {
-          const br = a.getBoundingClientRect();
-          hS.push(br.bottom - sr.top);
+        const seam = layout.cells.find(
+          (cell) => cell.row === j && cell.rowSpan === 1 && cell.type !== "empty"
+        );
+        if (seam) {
+          const rowSeamEl: HTMLElement | null = grid.querySelector(`[data-cell-id="${seam.id}"]`);
+          if (rowSeamEl) {
+            if (rowSeamEl.offsetParent === grid) {
+              hS.push(rowSeamEl.offsetTop + rowSeamEl.offsetHeight);
+            } else {
+              hS.push(rowSeamEl.getBoundingClientRect().bottom - sr.top);
+            }
+            continue;
+          }
         }
+        hS.push(cumToSplitLeft(rowFracs, j) * ph);
       }
     }
     setMeasSplits({ v, h: hS });
-  }, [c, r, w, h, colFracs, rowFracs, dataRef, cellLabels]);
+  }, [layout, c, r, w, h, colFracs, rowFracs, dataRef, cellLabels]);
 
   useLayoutEffect(() => {
     measureAndPushScene();
@@ -508,12 +601,11 @@ export function ResizableGridOverlay({
   }, [clearRimHold]);
 
   const onCellPointerDown =
-    (row: number, col: number) => (e: React.PointerEvent<HTMLDivElement>) => {
+    (cellId: string) => (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
       const el = rootRef.current;
       if (!el) return;
-      const idx = row * c + col;
-      const cr = dataRef.current.containerRects[idx];
+      const cr = dataRef.current.containerRects.find((r) => r.id === cellId);
       if (!cr || cr.w <= 0 || cr.h <= 0) return;
       const rootRect = el.getBoundingClientRect();
       const x = Math.min(
@@ -592,7 +684,10 @@ export function ResizableGridOverlay({
       const d = drag.current;
       if (!d || d.kind !== "v" || ev.pointerId !== d.pointerId) return;
       const { w: W } = getBoxSize();
-      const m = minTrackPx(MIN_COL_PX, W, c);
+      const colMins = computeColMinima(layout, MIN_COL_PX);
+      // Use the stricter of the two adjacent tracks as the cascade floor.
+      const mAdj = Math.max(colMins[d.index] ?? MIN_COL_PX, colMins[d.index + 1] ?? MIN_COL_PX);
+      const m = minTrackPx(mAdj, W, c);
       const wPx = d.colStart.map((f) => f * W);
       const dPix = ev.clientX - d.startX;
       const nextW = renormalizeToSum(
@@ -600,7 +695,9 @@ export function ResizableGridOverlay({
         W
       );
       const bounded = enforceTrackBounds(nextW, W, m, MAX_TRACK_FRACTION);
-      setColFracs(bounded.map((x) => x / W));
+      // Pass raw per-track mins (uncapped); applyPerTrackFloor has its own feasibility
+      // scaling and only lifts violating tracks, taking from donors above their bound.
+      setColFracs(applyPerTrackFloor(bounded, W, colMins).map((x) => x / W));
     };
     const onPointerEnd = (ev: PointerEvent) => {
       endDrag(ev);
@@ -630,7 +727,9 @@ export function ResizableGridOverlay({
       const d = drag.current;
       if (!d || d.kind !== "h" || ev.pointerId !== d.pointerId) return;
       const { h: H } = getBoxSize();
-      const m = minTrackPx(MIN_ROW_PX, H, r);
+      const rowMins = computeRowMinima(layout, MIN_ROW_PX);
+      const mAdj = Math.max(rowMins[d.index] ?? MIN_ROW_PX, rowMins[d.index + 1] ?? MIN_ROW_PX);
+      const m = minTrackPx(mAdj, H, r);
       const hPx = d.rowStart.map((f) => f * H);
       const dPix = ev.clientY - d.startY;
       const nextH = renormalizeToSum(
@@ -638,7 +737,7 @@ export function ResizableGridOverlay({
         H
       );
       const bounded = enforceTrackBounds(nextH, H, m, MAX_TRACK_FRACTION);
-      setRowFracs(bounded.map((x) => x / H));
+      setRowFracs(applyPerTrackFloor(bounded, H, rowMins).map((x) => x / H));
     };
     const onPointerEnd = (ev: PointerEvent) => {
       endDrag(ev);
@@ -677,8 +776,12 @@ export function ResizableGridOverlay({
         const d = drag.current;
         if (!d || d.kind !== "c" || ev.pointerId !== d.pointerId) return;
         const { w: W, h: H } = getBoxSize();
-        const mCol = minTrackPx(MIN_COL_PX, W, c);
-        const mRow = minTrackPx(MIN_ROW_PX, H, r);
+        const colMins = computeColMinima(layout, MIN_COL_PX);
+        const rowMins = computeRowMinima(layout, MIN_ROW_PX);
+        const mColAdj = Math.max(colMins[d.col] ?? MIN_COL_PX, colMins[d.col + 1] ?? MIN_COL_PX);
+        const mRowAdj = Math.max(rowMins[d.row] ?? MIN_ROW_PX, rowMins[d.row + 1] ?? MIN_ROW_PX);
+        const mCol = minTrackPx(mColAdj, W, c);
+        const mRow = minTrackPx(mRowAdj, H, r);
         const wPx = d.colStart.map((f) => f * W);
         const hPx = d.rowStart.map((f) => f * H);
         const dCol = ev.clientX - d.startX;
@@ -693,8 +796,8 @@ export function ResizableGridOverlay({
         );
         const boundedW = enforceTrackBounds(nextW, W, mCol, MAX_TRACK_FRACTION);
         const boundedH = enforceTrackBounds(nextH, H, mRow, MAX_TRACK_FRACTION);
-        setColFracs(boundedW.map((x) => x / W));
-        setRowFracs(boundedH.map((x) => x / H));
+        setColFracs(applyPerTrackFloor(boundedW, W, colMins).map((x) => x / W));
+        setRowFracs(applyPerTrackFloor(boundedH, H, rowMins).map((x) => x / H));
       };
       const onPointerEnd = (ev: PointerEvent) => {
         endDrag(ev);
@@ -773,39 +876,84 @@ export function ResizableGridOverlay({
         role="grid"
         aria-label="Shader grid cells"
       >
-        {Array.from({ length: r }, (_, row) =>
-          Array.from({ length: c }, (_, col) => {
-            const text = cellLabels[row]?.[col] ?? "";
+        {layout.cells.map((cell) => {
+          const cellStyle = {
+            gridColumn: `${cell.col + 1} / span ${cell.colSpan}`,
+            gridRow: `${cell.row + 1} / span ${cell.rowSpan}`,
+          } as const;
+
+          if (cell.type === "empty") {
             return (
               <div
-                key={`${row}-${col}`}
+                key={cell.id}
+                data-cell-id={cell.id}
+                className="resizable-grid__cell resizable-grid__cell--empty"
+                style={cellStyle}
+                aria-hidden
+              />
+            );
+          }
+
+          if (cell.type === "micro") {
+            const containerClass = `resizable-grid__micro-container resizable-grid__micro--${cell.microSplit ?? "h"}`;
+            return (
+              <div
+                key={cell.id}
+                data-cell-id={cell.id}
                 className="resizable-grid__cell"
                 role="gridcell"
-                onPointerDown={onCellPointerDown(row, col)}
-                aria-label={
-                  text
-                    ? undefined
-                    : `Empty cell row ${row + 1} column ${col + 1}`
-                }
+                style={cellStyle}
               >
                 <div className="resizable-grid__cell-chrome">
-                  <div className="resizable-grid__cell-surface">
-                    {text ? (
-                      <span className="resizable-grid__cell-text">{text}</span>
-                    ) : (
-                      <span
-                        className="resizable-grid__cell-text resizable-grid__cell-text--empty"
-                        aria-hidden
-                      >
-                        &nbsp;
-                      </span>
-                    )}
+                  <div className={containerClass}>
+                    {Array.from({ length: cell.microCount ?? 2 }, (_, i) => {
+                      const microId = `${cell.id}-m-${i}`;
+                      const microLabel = cellLabels[microId] ?? `${cellLabels[cell.id] ?? cell.id}.${i + 1}`;
+                      return (
+                        <div
+                          key={microId}
+                          className="resizable-grid__micro-cell"
+                          onPointerDown={onCellPointerDown(microId)}
+                        >
+                          <div className="resizable-grid__cell-surface">
+                            <span className="resizable-grid__cell-text">{microLabel}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
             );
-          })
-        ).flat()}
+          }
+
+          const label = cellLabels[cell.id] ?? "";
+          return (
+            <div
+              key={cell.id}
+              data-cell-id={cell.id}
+              className="resizable-grid__cell"
+              role="gridcell"
+              style={cellStyle}
+              onPointerDown={onCellPointerDown(cell.id)}
+            >
+              <div className="resizable-grid__cell-chrome">
+                <div className="resizable-grid__cell-surface">
+                  {label ? (
+                    <span className="resizable-grid__cell-text">{label}</span>
+                  ) : (
+                    <span
+                      className="resizable-grid__cell-text resizable-grid__cell-text--empty"
+                      aria-hidden
+                    >
+                      &nbsp;
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
       <div
         ref={splitsRef}

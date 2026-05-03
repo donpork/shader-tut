@@ -81,15 +81,9 @@ export function createGridShaderSketch(
       bgLayer.rect(0, 0, bgLayer.width, bgLayer.height);
       bgLayer.textAlign(p.CENTER, p.CENTER);
       bgLayer.textSize(16);
-      const cols = Math.max(1, dataRef.current.cellLabels[0]?.length ?? 1);
       for (let i = 0; i < d.containerRects.length; i += 1) {
         const c = d.containerRects[i]!;
-        const idMatch = /^(\d+)-(\d+)$/.exec(c.id);
-        const row = idMatch ? Number(idMatch[1]) : Math.floor(i / cols);
-        const col = idMatch ? Number(idMatch[2]) : i % cols;
-        const label =
-          d.cellLabels[row]?.[col] ??
-          `R${Math.max(0, row) + 1}C${Math.max(0, col) + 1}`;
+        const label = d.cellLabels[c.id] ?? c.id;
         bgLayer.fill(234, 244, 255, 225);
         bgLayer.text(label, c.x + c.w * 0.5, c.y + c.h * 0.5);
       }
@@ -192,7 +186,6 @@ export function createGridShaderSketch(
       sh.setUniform("uDispersionSpread", gp.dispersionSpread);
       sh.setUniform("uDispersionSharpness", gp.dispersionSharpness);
       sh.setUniform("uDispersionFocus", gp.dispersionFocus);
-      sh.setUniform("uEnvReflection", gp.envReflection);
       sh.setUniform("uBevelEnabled", gp.bevelEnabled ? 1 : 0);
       sh.setUniform("uBevelStrength", gp.bevelStrength);
       sh.setUniform("uBevelWidthPx", Math.max(0.5, gp.bevelWidthPx));
@@ -217,6 +210,10 @@ export function createGridShaderSketch(
           dMax > 1e-6 ? smoothstep(0, dMax, dEff) : 1;
         const keyLightIntensity = gp.keyLightIntensity * (1.0 + t * 3.0);
         sh.setUniform("uKeyLightIntensity", keyLightIntensity);
+        // Match center-hover response with key light: edges keep the base env reflection,
+        // center ramps to 1.5x (0.4 -> 0.6 with default settings).
+        const envReflection = gp.envReflection * (1.0 + t * 0.5);
+        sh.setUniform("uEnvReflection", envReflection);
         let rimHoldMul = 1.0;
         if (
           scene.rimHoldPointerDown &&

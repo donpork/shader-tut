@@ -65,9 +65,11 @@
   /* Keep label metrics stable; do not scale text with cell size. */
   font-size: 1rem;
   line-height: 1.35;
-  /* overflow:hidden would zero the grid item's content-based min; tracks could shrink below
-     the padded label box and clip. Surface clips the rounded frame; the cell may overflow. */
-  overflow: visible;
+  /* clip at the cell boundary so content never bleeds into an adjacent cell.
+     The explicit min-width/min-height below still enforces the track minimum even
+     with overflow:hidden (the automatic "min-content" automatic minimum is zeroed, but
+     the explicit min-width:max(...,min-content) overrides it for track sizing). */
+  overflow: hidden;
   min-width: max(calc(2 * var(--gutter-x)), min-content);
   min-height: max(calc(2 * var(--gutter-y)), min-content);
 }
@@ -265,6 +267,57 @@
   background: rgba(80, 160, 255, 0.22);
   border-color: rgba(120, 200, 255, 0.5);
   outline: none;
+}
+
+/* Empty grid cell — occupies space but renders nothing; no pointer events. */
+.resizable-grid__cell--empty {
+  pointer-events: none;
+  background: transparent;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Micro cell container — flex row or column holding 2–3 sub-cell surfaces. */
+.resizable-grid__micro-container {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+
+.resizable-grid__micro--h {
+  flex-direction: row;
+}
+
+.resizable-grid__micro--v {
+  flex-direction: column;
+}
+
+.resizable-grid__micro-cell {
+  flex: 1 1 0;
+  /* Equal flex subdivision: each sub-cell is exactly (container − gap) / count. The track-level
+     minimum is enforced by the JS per-track floor (computeColMinima/computeRowMinima) and the
+     parent cell's own min-width chain, not per-sub-cell. This keeps DOM render and JS-computed
+     shader rects identical when the parent is narrow. */
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  cursor: default;
+}
+
+/* Inside a micro sub-cell, the surface flexes without its own minimum so DOM render
+   matches the JS subdivision. Drop the 1px box-shadow: the WebGL shader already paints
+   each sub-cell's pill outline, and a parallel CSS outline only guarantees misalignment
+   at the gap (different anti-aliasing, subpixel rounding) and can visually overlap into
+   the 2px gap between sub-cells. */
+.resizable-grid__micro-cell .resizable-grid__cell-surface {
+  min-width: 0;
+  min-height: 0;
+  box-shadow: none;
 }
 
 .resizable-grid__debug-overlay {
