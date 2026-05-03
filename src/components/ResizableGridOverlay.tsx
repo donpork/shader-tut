@@ -294,6 +294,14 @@ export function ResizableGridOverlay({
   const drag = useRef<Drag | null>(null);
   const moveListener = useRef<((e: PointerEvent) => void) | null>(null);
   const endPointerListener = useRef<((e: PointerEvent) => void) | null>(null);
+  /** Single-mode only: orbit params deferred from pointerdown to pointerup. */
+  const pendingOrbit = useRef<{
+    cellId: string;
+    nx: number;
+    ny: number;
+    orbitMs: number;
+    decayMs: number;
+  } | null>(null);
 
   useLayoutEffect(() => {
     setColFracs(makeUniformFracs(c));
@@ -642,36 +650,84 @@ export function ResizableGridOverlay({
       const sizeRatio = Math.max(0.5, Math.min(2.0, cellSize / Math.max(normalPx, 1)));
       const decayMs = Math.round(Math.max(1000, Math.min(4000, 2000 * sizeRatio)));
       const orbitMs = Math.round(Math.min(500, SPECULAR_SPIN_DURATION_MS * sizeRatio));
-      dataRef.current = {
-        ...scene,
-        rimHoldPointerDown: true,
-        rimHoldCellId: cr.id,
-        rimHoldStartTimeMs: nowMs,
-        rimReleaseCellId: null,
-        rimReleaseStartTimeMs: null,
-        rimReleaseFromMul: null,
-        rimReleaseMode: null,
-        rimShortPulseRampMs: null,
-        specularSpin: {
-          cellId: cr.id,
-          startTimeMs: nowMs,
-          durationMs: orbitMs,
-          startSpecDirX: nx,
-          startSpecDirY: ny,
-        },
-        specularModulation: {
-          cellId: cr.id,
-          startTimeMs: nowMs,
-          peakTimeMs: nowMs + orbitMs * 0.5,
-          decayMs,
-          peakSpecularIntensityMul: 3.0,
-          peakSpecularPowerMul: 0.5,
-          peakDispersionHueShiftMul: 3.5,
-          peakDispersionSpreadMul: 4.0,
-          peakSpecDispersionAmountMul: 5.0,
-        },
-      };
+      if (singleMode) {
+        // Touch: activate hover immediately, defer orbit to pointerup.
+        updateLightFromClient(e.clientX, e.clientY);
+        dataRef.current = {
+          ...scene,
+          pointerOverSurface: true,
+          rimHoldPointerDown: true,
+          rimHoldCellId: cr.id,
+          rimHoldStartTimeMs: nowMs,
+          rimReleaseCellId: null,
+          rimReleaseStartTimeMs: null,
+          rimReleaseFromMul: null,
+          rimReleaseMode: null,
+          rimShortPulseRampMs: null,
+        };
+        pendingOrbit.current = { cellId: cr.id, nx, ny, orbitMs, decayMs };
+      } else {
+        dataRef.current = {
+          ...scene,
+          rimHoldPointerDown: true,
+          rimHoldCellId: cr.id,
+          rimHoldStartTimeMs: nowMs,
+          rimReleaseCellId: null,
+          rimReleaseStartTimeMs: null,
+          rimReleaseFromMul: null,
+          rimReleaseMode: null,
+          rimShortPulseRampMs: null,
+          specularSpin: {
+            cellId: cr.id,
+            startTimeMs: nowMs,
+            durationMs: orbitMs,
+            startSpecDirX: nx,
+            startSpecDirY: ny,
+          },
+          specularModulation: {
+            cellId: cr.id,
+            startTimeMs: nowMs,
+            peakTimeMs: nowMs + orbitMs * 0.5,
+            decayMs,
+            peakSpecularIntensityMul: 3.0,
+            peakSpecularPowerMul: 0.5,
+            peakDispersionHueShiftMul: 3.5,
+            peakDispersionSpreadMul: 4.0,
+            peakSpecDispersionAmountMul: 5.0,
+          },
+        };
+      }
     };
+
+  const onCellPointerUp = singleMode
+    ? (_e: React.PointerEvent<HTMLDivElement>) => {
+        const p = pendingOrbit.current;
+        if (!p) return;
+        pendingOrbit.current = null;
+        const nowMs = performance.now();
+        dataRef.current = {
+          ...dataRef.current,
+          specularSpin: {
+            cellId: p.cellId,
+            startTimeMs: nowMs,
+            durationMs: p.orbitMs,
+            startSpecDirX: p.nx,
+            startSpecDirY: p.ny,
+          },
+          specularModulation: {
+            cellId: p.cellId,
+            startTimeMs: nowMs,
+            peakTimeMs: nowMs + p.orbitMs * 0.5,
+            decayMs: p.decayMs,
+            peakSpecularIntensityMul: 3.0,
+            peakSpecularPowerMul: 0.5,
+            peakDispersionHueShiftMul: 3.5,
+            peakDispersionSpreadMul: 4.0,
+            peakSpecDispersionAmountMul: 5.0,
+          },
+        };
+      }
+    : undefined;
 
   const onPointerDownV = (index: number) => (e: React.PointerEvent) => {
     e.preventDefault();
@@ -921,6 +977,7 @@ export function ResizableGridOverlay({
                           key={microId}
                           className="resizable-grid__micro-cell"
                           onPointerDown={onCellPointerDown(microId)}
+                          onPointerUp={onCellPointerUp}
                         >
                           <div className="resizable-grid__cell-surface">
                             <span className="resizable-grid__cell-text">{microLabel}</span>
@@ -943,6 +1000,7 @@ export function ResizableGridOverlay({
               role="gridcell"
               style={cellStyle}
               onPointerDown={onCellPointerDown(cell.id)}
+              onPointerUp={onCellPointerUp}
             >
               <div className="resizable-grid__cell-chrome">
                 <div className="resizable-grid__cell-surface">

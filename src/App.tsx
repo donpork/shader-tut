@@ -4,6 +4,7 @@ import { makeLabelsFromPreset } from "./lib/cellLabelGrid";
 import {
   ALL_PRESETS,
   PRESET_FIXED,
+  PRESET_SINGLE,
   type LayoutPreset,
 } from "./lib/layoutPreset";
 import type { GlassParams, SceneData } from "./lib/sceneData";
@@ -764,7 +765,7 @@ function App() {
       <div className="scene">
         <ResizableGridOverlay
           dataRef={dataRef}
-          layout={activePreset}
+          layout={singleMode ? PRESET_SINGLE : activePreset}
           cellLabels={cellLabels}
           showDebugShader={showDebugShader}
           showDebugGrid={showDebugGrid}

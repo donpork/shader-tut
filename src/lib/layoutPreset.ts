@@ -186,6 +186,18 @@ export const PRESET_SIDE_CUT: LayoutPreset = {
   ],
 };
 
+/**
+ * Single mode (mobile): one quad supercell spanning the full 2×2 grid.
+ * Not user-selectable — used automatically when singleMode is active.
+ */
+export const PRESET_SINGLE: LayoutPreset = {
+  name: "Single",
+  ordering: "fixed",
+  cols: 2,
+  rows: 2,
+  cells: [c(0, 0, 2, 2, "super")],
+};
+
 export const ALL_PRESETS: LayoutPreset[] = [
   PRESET_SEQUENTIAL,
   PRESET_ORGANIZED,
