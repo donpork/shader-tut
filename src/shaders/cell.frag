@@ -295,7 +295,7 @@ void main() {
   finalColor = min(finalColor, vec3(1.0));
   float alpha = clamp(
     (
-      0.46
+      0.5
       + rimBand
       + spec * 0.25
       + boxLight * 0.2

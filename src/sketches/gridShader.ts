@@ -7,10 +7,35 @@ import cubeStripUrl from "../assets/StandardCubeMap.png";
 import cursorImgUrl from "../assets/cursor.svg";
 
 const LABEL_BASE_SIZE = 16;
-/** Alpha at edge (no hover). Max is 255. */
-const LABEL_BASE_ALPHA = 205;
-/** How much alpha ramps up at cell center (additive at hoverT=1: base + boost caps at 255). */
-const LABEL_HOVER_ALPHA_BOOST = 50;
+/** Label opacity mapping (percent). */
+const LABEL_EDGE_OPACITY_PCT = 75;
+/** Max additive brightness boost for the post-shader label glow overlay (0–255). */
+const LABEL_OVERLAY_PEAK_ALPHA = 200;
+
+/** Minimal blit shader: full-canvas textured quad, Y-flipped to match 2D canvas convention. */
+const BLIT_VERT = `
+attribute vec3 aPosition;
+uniform mat4 uProjectionMatrix;
+uniform mat4 uModelViewMatrix;
+void main() {
+  gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
+}
+`;
+// Uses gl_FragCoord for screen-space UV, same Y-flip as cell.frag sceneUV — guaranteed
+// to match the 2D labelLayer coordinate convention regardless of p5 plane texcoord layout.
+const BLIT_FRAG = `
+precision mediump float;
+uniform sampler2D uTex;
+uniform vec2 uBlitResolution;
+void main() {
+  vec2 uv = vec2(
+    gl_FragCoord.x / max(uBlitResolution.x, 1.0),
+    1.0 - gl_FragCoord.y / max(uBlitResolution.y, 1.0)
+  );
+  gl_FragColor = texture2D(uTex, uv);
+}
+`;
+const LABEL_CENTER_OPACITY_PCT = 100;
 /** Smallest text scale during rim-hold / click pinch (90%). */
 const LABEL_SCALE_MIN = 0.9;
 /** Text shrink completes over this duration on mouse-down hold. */
@@ -125,6 +150,8 @@ export function createGridShaderSketch(
   return (p: p5) => {
     let sh: p5.Shader;
     let bgLayer: p5.Graphics;
+    let labelLayer: p5.Graphics;
+    let blitShader: p5.Shader;
     let cubeStrip: p5.Image | null = null;
     let envLoadAttempted = false;
     let cursorImg: p5.Image | null = null;
@@ -141,6 +168,7 @@ export function createGridShaderSketch(
       bgLayer.textAlign(p.CENTER, p.CENTER);
       const px = d.lightPos.x;
       const py = d.lightPos.y;
+      bgLayer.blendMode(p.ADD);
       for (let i = 0; i < d.containerRects.length; i += 1) {
         const c = d.containerRects[i]!;
         const label = d.cellLabels[c.id] ?? c.id;
@@ -149,14 +177,19 @@ export function createGridShaderSketch(
         const dMax = Math.min(c.w, c.h) * 0.5;
         const dSigned = signedDepthToCell(px, py, c);
         const hoverT = dMax > 1e-6 ? smoothstep(0, dMax, Math.max(dSigned, 0)) : 1;
-        const labelAlpha = Math.min(LABEL_BASE_ALPHA + Math.round(hoverT * LABEL_HOVER_ALPHA_BOOST), 255);
+        const opacityPct = d.pointerOverSurface
+          ? LABEL_EDGE_OPACITY_PCT
+            + (LABEL_CENTER_OPACITY_PCT - LABEL_EDGE_OPACITY_PCT) * hoverT
+          : LABEL_EDGE_OPACITY_PCT;
+        const labelAlpha = Math.round((opacityPct / 100) * 255);
 
         const sizeMul = labelScaleMulForCell(d, c.id);
 
         bgLayer.textSize(LABEL_BASE_SIZE * sizeMul);
-        bgLayer.fill(234, 244, 255, labelAlpha);
+        bgLayer.fill(250, 250, 250, labelAlpha);
         bgLayer.text(label, c.x + c.w * 0.5, c.y + c.h * 0.5);
       }
+      bgLayer.blendMode(p.BLEND);
       if (d.pointerOverSurface && cursorImg) {
         const px = d.lightPos.x;
         const py = d.lightPos.y;
@@ -193,6 +226,29 @@ export function createGridShaderSketch(
       }
     };
 
+    const drawLabelOverlay = () => {
+      labelLayer.clear();
+      const d = dataRef.current;
+      if (!d.containerRects.length) return;
+      labelLayer.textAlign(p.CENTER, p.CENTER);
+      const px = d.lightPos.x;
+      const py = d.lightPos.y;
+      for (let i = 0; i < d.containerRects.length; i += 1) {
+        const c = d.containerRects[i]!;
+        if (!d.pointerOverSurface) continue;
+        const dMax = Math.min(c.w, c.h) * 0.5;
+        const dSigned = signedDepthToCell(px, py, c);
+        const hoverT = dMax > 1e-6 ? smoothstep(0, dMax, Math.max(dSigned, 0)) : 1;
+        if (hoverT <= 0) continue;
+        const overlayAlpha = Math.round(hoverT * LABEL_OVERLAY_PEAK_ALPHA);
+        const label = d.cellLabels[c.id] ?? c.id;
+        const sizeMul = labelScaleMulForCell(d, c.id);
+        labelLayer.textSize(LABEL_BASE_SIZE * sizeMul);
+        labelLayer.fill(250, 250, 250, overlayAlpha);
+        labelLayer.text(label, c.x + c.w * 0.5, c.y + c.h * 0.5);
+      }
+    };
+
     p.setup = () => {
       const el = getHost();
       const w = Math.max(1, el?.clientWidth ?? 1);
@@ -203,6 +259,8 @@ export function createGridShaderSketch(
       p.ortho(-w * 0.5, w * 0.5, -h * 0.5, h * 0.5, -1000, 1000);
       sh = p.createShader(vert, frag);
       bgLayer = p.createGraphics(w, h);
+      labelLayer = p.createGraphics(w, h);
+      blitShader = p.createShader(BLIT_VERT, BLIT_FRAG);
       if (!envLoadAttempted) {
         envLoadAttempted = true;
         p.loadImage(
@@ -225,8 +283,10 @@ export function createGridShaderSketch(
       let scene = dataRef.current;
       if (bgLayer.width !== p.width || bgLayer.height !== p.height) {
         bgLayer.resizeCanvas(p.width, p.height);
+        labelLayer.resizeCanvas(p.width, p.height);
       }
       drawBackgroundLayer();
+      drawLabelOverlay();
       p.background(0, 0, 0);
 
       if (!scene.containerRects.length) return;
@@ -267,6 +327,17 @@ export function createGridShaderSketch(
       sh.setUniform("uGlowScale", 0.0);
       let clearRimReleaseState = false;
       let clearSpecularModulationState = false;
+      // Accumulate per-cell computed uniform values so the glow pass can replay them exactly,
+      // preventing stale modulated values from the last cell bleeding into all glow-pass draws.
+      const cellGlowUniforms: Array<{
+        specPower: number;
+        specIntensity: number;
+        specDirX: number;
+        specDirY: number;
+        dispHue: number;
+        dispSpread: number;
+        specDispAmt: number;
+      }> = [];
       for (let i = 0; i < scene.containerRects.length; i += 1) {
         const c = scene.containerRects[i]!;
         const px = scene.lightPos.x;
@@ -404,12 +475,26 @@ export function createGridShaderSketch(
           }
         }
         const [specX, specY] = normalize2(specularXY[0], specularXY[1]);
-        sh.setUniform("uSpecularPower", gp.specularPower * specPowerMul);
-        sh.setUniform("uSpecularIntensity", gp.specularIntensity * specIntensityMul);
+        const cellSpecPower = gp.specularPower * specPowerMul;
+        const cellSpecIntensity = gp.specularIntensity * specIntensityMul;
+        const cellDispHue = gp.dispersionHueShift * dispersionHueShiftMul;
+        const cellDispSpread = gp.dispersionSpread * dispersionSpreadMul;
+        const cellSpecDispAmt = gp.specDispersionAmount * specDispersionAmountMul;
+        cellGlowUniforms.push({
+          specPower: cellSpecPower,
+          specIntensity: cellSpecIntensity,
+          specDirX: specX,
+          specDirY: specY,
+          dispHue: cellDispHue,
+          dispSpread: cellDispSpread,
+          specDispAmt: cellSpecDispAmt,
+        });
+        sh.setUniform("uSpecularPower", cellSpecPower);
+        sh.setUniform("uSpecularIntensity", cellSpecIntensity);
         sh.setUniform("uSpecularLightDir", [specX, specY, 0.85]);
-        sh.setUniform("uDispersionHueShift", gp.dispersionHueShift * dispersionHueShiftMul);
-        sh.setUniform("uDispersionSpread", gp.dispersionSpread * dispersionSpreadMul);
-        sh.setUniform("uSpecDispersionAmount", gp.specDispersionAmount * specDispersionAmountMul);
+        sh.setUniform("uDispersionHueShift", cellDispHue);
+        sh.setUniform("uDispersionSpread", cellDispSpread);
+        sh.setUniform("uSpecDispersionAmount", cellSpecDispAmt);
         sh.setUniform("uCellRect", [c.x, c.y, c.w, c.h]);
         // p5 calls fillShader.unbindShader() after every retained draw, which resets all sampler
         // uniforms to an empty texture (see p5.Shader.unbindTextures). Re-bind per cell so every
@@ -454,13 +539,16 @@ export function createGridShaderSketch(
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
       for (let i = 0; i < scene.containerRects.length; i += 1) {
         const c = scene.containerRects[i]!;
+        const gu = cellGlowUniforms[i]!;
         sh.setUniform("uCellRect", [c.x, c.y, c.w, c.h]);
         sh.setUniform("uBackground", bgLayer);
         sh.setUniform("uCubeStrip", cubeStrip ?? bgLayer);
-        // Reuse last-computed specular direction for this cell.
-        const lastXY = lastSpecularXY.get(c.id) ?? gp.specularLightXY;
-        const [specX, specY] = normalize2(lastXY[0], lastXY[1]);
-        sh.setUniform("uSpecularLightDir", [specX, specY, 0.85]);
+        sh.setUniform("uSpecularPower", gu.specPower);
+        sh.setUniform("uSpecularIntensity", gu.specIntensity);
+        sh.setUniform("uSpecularLightDir", [gu.specDirX, gu.specDirY, 0.85]);
+        sh.setUniform("uDispersionHueShift", gu.dispHue);
+        sh.setUniform("uDispersionSpread", gu.dispSpread);
+        sh.setUniform("uSpecDispersionAmount", gu.specDispAmt);
         p.push();
         p.translate(
           c.x + c.w * 0.5 - p.width * 0.5,
@@ -470,6 +558,16 @@ export function createGridShaderSketch(
         p.plane(c.w, c.h);
         p.pop();
       }
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      p.resetShader();
+
+      // Label glow overlay: additively blit labelLayer over the rendered surface so
+      // labels brighten toward full white at center hover, bypassing the shader's ×0.5 cap.
+      p.shader(blitShader);
+      blitShader.setUniform("uTex", labelLayer);
+      blitShader.setUniform("uBlitResolution", [p.width, p.height]);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      p.plane(p.width, p.height);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       p.resetShader();
     };

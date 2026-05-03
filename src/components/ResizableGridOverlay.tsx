@@ -30,7 +30,6 @@ const MAX_TRACK_FRACTION = 0.5;
 const MICRO_GAP_PX = 2;
 /** One full specular rotation in the shader after a cell surface click. */
 const SPECULAR_SPIN_DURATION_MS = 350;
-const SPECULAR_MODULATION_DECAY_MS = 1000;
 const RIM_HOLD_RAMP_MS = 1500;
 const RIM_SHORT_CLICK_THRESHOLD_MS = 150;
 const RIM_SHORT_CLICK_RAMP_MS = 100;
@@ -638,6 +637,11 @@ export function ResizableGridOverlay({
       e.preventDefault();
       const scene = dataRef.current;
       const nowMs = performance.now();
+      const normalPx = 0.25 * Math.min(rootRect.width, rootRect.height);
+      const cellSize = Math.sqrt(cr.w * cr.h);
+      const sizeRatio = Math.max(0.5, Math.min(2.0, cellSize / Math.max(normalPx, 1)));
+      const decayMs = Math.round(Math.max(1000, Math.min(4000, 2000 * sizeRatio)));
+      const orbitMs = Math.round(Math.min(500, SPECULAR_SPIN_DURATION_MS * sizeRatio));
       dataRef.current = {
         ...scene,
         rimHoldPointerDown: true,
@@ -651,20 +655,20 @@ export function ResizableGridOverlay({
         specularSpin: {
           cellId: cr.id,
           startTimeMs: nowMs,
-          durationMs: SPECULAR_SPIN_DURATION_MS,
+          durationMs: orbitMs,
           startSpecDirX: nx,
           startSpecDirY: ny,
         },
         specularModulation: {
           cellId: cr.id,
           startTimeMs: nowMs,
-          peakTimeMs: nowMs + SPECULAR_SPIN_DURATION_MS * 0.5,
-          decayMs: SPECULAR_MODULATION_DECAY_MS,
+          peakTimeMs: nowMs + orbitMs * 0.5,
+          decayMs,
           peakSpecularIntensityMul: 3.0,
           peakSpecularPowerMul: 0.5,
-          peakDispersionHueShiftMul: 1.6,
-          peakDispersionSpreadMul: 1.8,
-          peakSpecDispersionAmountMul: 2.2,
+          peakDispersionHueShiftMul: 3.5,
+          peakDispersionSpreadMul: 4.0,
+          peakSpecDispersionAmountMul: 5.0,
         },
       };
     };
