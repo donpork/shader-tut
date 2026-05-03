@@ -42,6 +42,13 @@ function expoEaseInOut01(t: number): number {
   return (2 - Math.pow(2, -20 * t + 10)) / 2;
 }
 
+/** Exponential ease-out 0..1 (fast start, slow end). */
+function easeOutExpo01(t: number): number {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  return 1 - Math.pow(2, -10 * t);
+}
+
 /**
  * Instance-mode sketch for one WEBGL canvas. draw() reads dataRef; React writes it.
  * Host is top-left / Y-down, matching the shader’s gl_FragCoord fix.
@@ -87,11 +94,36 @@ export function createGridShaderSketch(
         bgLayer.text(label, c.x + c.w * 0.5, c.y + c.h * 0.5);
       }
       if (d.pointerOverSurface && cursorImg) {
-        const imgW = 44;
+        const px = d.lightPos.x;
+        const py = d.lightPos.y;
+        const gp = d.glassParams;
+        const plateau = Math.max(0, Math.min(0.8, gp.plateau));
+        const flatPow = Math.max(1, gp.flatPow);
+        // Mirror the shader's dome curvature math (same dNorm/side formula as cell.frag).
+        // side ≈ 1 at edge, 0 at center.
+        // Center scale: 100–125% (clamped), edge scale: 200–400% (clamped), both driven by cell size.
+        const CURSOR_SIZE_REF_PX = 300; // geometric-mean cell size that reads as 1×
+        let cursorScale = 1.0;
+        for (let i = 0; i < d.containerRects.length; i++) {
+          const cr = d.containerRects[i]!;
+          const dSigned = signedDepthToCell(px, py, cr);
+          if (dSigned >= 0) {
+            const maxInPx = Math.max(Math.min(cr.w, cr.h) * 0.5, 1);
+            const dNorm = Math.min(1, Math.max(0, dSigned / maxInPx));
+            const tCurv = Math.max(0, Math.min(1, (dNorm - plateau) / Math.max(1 - plateau, 1e-4)));
+            const side = Math.pow(1 - tCurv, flatPow);
+            const sizeMul = Math.sqrt(cr.w * cr.h) / CURSOR_SIZE_REF_PX;
+            const centerScale = Math.min(1.25, Math.max(1.0, 1.5 * sizeMul));
+            const edgeScale   = Math.min(4.0,  Math.max(2.0, 3.0 * sizeMul));
+            cursorScale = centerScale + (edgeScale - centerScale) * side;
+            break;
+          }
+        }
+        const imgW = 44 * cursorScale;
         const imgH = Math.round(imgW * (cursorImg.height / Math.max(cursorImg.width, 1)));
         bgLayer.push();
         bgLayer.tint(255, 90);
-        bgLayer.image(cursorImg, d.lightPos.x - imgW * 0.5, d.lightPos.y - imgH * 0.5, imgW, imgH);
+        bgLayer.image(cursorImg, px - imgW * 0.5, py - imgH * 0.5, imgW, imgH);
         bgLayer.noTint();
         bgLayer.pop();
       }
@@ -150,9 +182,6 @@ export function createGridShaderSketch(
       sh.setUniform("uResolution", [p.width, p.height]);
       sh.setUniform("uEnvMix", cubeStrip ? 1.0 : 0.0);
       sh.setUniform("uLightDir", [lightX, lightY, gp.keyLightZ]);
-      sh.setUniform("uKeyLightIntensity", gp.keyLightIntensity);
-      sh.setUniform("uSpecularPower", gp.specularPower);
-      sh.setUniform("uSpecularIntensity", gp.specularIntensity);
       sh.setUniform("uRimPower", gp.rimPower);
       sh.setUniform("uFlatPow", gp.flatPow);
       sh.setUniform("uPlateau", gp.plateau);
@@ -173,6 +202,8 @@ export function createGridShaderSketch(
       sh.setUniform("uBoxLightSoftness", gp.boxLightSoftness);
       sh.setUniform("uBoxLightSize", gp.boxLightSize);
       sh.setUniform("uBoxLightPos", gp.boxLightPosXY);
+      let clearRimReleaseState = false;
+      let clearSpecularModulationState = false;
       for (let i = 0; i < scene.containerRects.length; i += 1) {
         const c = scene.containerRects[i]!;
         const px = scene.lightPos.x;
@@ -184,9 +215,78 @@ export function createGridShaderSketch(
         const dEff = Math.max(dSigned, 0);
         const t =
           dMax > 1e-6 ? smoothstep(0, dMax, dEff) : 1;
-        const rimIntensity = gp.rimIntensity * (1.0 + t * 3.0);
+        const keyLightIntensity = gp.keyLightIntensity * (1.0 + t * 3.0);
+        sh.setUniform("uKeyLightIntensity", keyLightIntensity);
+        let rimHoldMul = 1.0;
+        if (
+          scene.rimHoldPointerDown &&
+          scene.rimHoldCellId === c.id &&
+          scene.rimHoldStartTimeMs !== null
+        ) {
+          const elapsedMs = Math.max(0, performance.now() - scene.rimHoldStartTimeMs);
+          rimHoldMul = 1.0 + 3.0 * smoothstep(0, 1500, elapsedMs);
+        } else if (
+          scene.rimReleaseCellId === c.id &&
+          scene.rimReleaseStartTimeMs !== null &&
+          scene.rimReleaseFromMul !== null &&
+          scene.rimReleaseMode !== null
+        ) {
+          const releaseElapsedMs = Math.max(
+            0,
+            performance.now() - scene.rimReleaseStartTimeMs
+          );
+          if (scene.rimReleaseMode === "shortClick") {
+            const rampMs = Math.max(1, scene.rimShortPulseRampMs ?? 300);
+            if (releaseElapsedMs <= rampMs) {
+              const trUp = Math.max(0, Math.min(1, releaseElapsedMs / rampMs));
+              // Short click stage A: easeOutExpo ramp-up to 4x.
+              rimHoldMul = 1.0 + 3.0 * easeOutExpo01(trUp);
+            } else {
+              // Short click stage B: current 1000ms easeOutExpo decay back to 1x.
+              const trDown = Math.max(0, Math.min(1, (releaseElapsedMs - rampMs) / 1000));
+              const e = easeOutExpo01(trDown);
+              rimHoldMul = 4.0 + (1.0 - 4.0) * e;
+              if (trDown >= 1.0) clearRimReleaseState = true;
+            }
+          } else {
+            const tr = Math.max(0, Math.min(1, releaseElapsedMs / 1000));
+            const e = easeOutExpo01(tr);
+            rimHoldMul =
+              scene.rimReleaseFromMul
+              + (1.0 - scene.rimReleaseFromMul) * e;
+            if (tr >= 1.0) clearRimReleaseState = true;
+          }
+        }
+        const rimIntensity = gp.rimIntensity * rimHoldMul;
         sh.setUniform("uRimIntensity", rimIntensity);
         let specularXY: [number, number] = gp.specularLightXY;
+        let specIntensityMul = 1.0;
+        let specPowerMul = 1.0;
+        const modulation = scene.specularModulation;
+        if (modulation && modulation.cellId === c.id) {
+          const nowMs = performance.now();
+          if (nowMs <= modulation.peakTimeMs) {
+            const upDen = Math.max(1, modulation.peakTimeMs - modulation.startTimeMs);
+            const upT = Math.max(0, Math.min(1, (nowMs - modulation.startTimeMs) / upDen));
+            specIntensityMul =
+              1.0 + (modulation.peakSpecularIntensityMul - 1.0) * upT;
+            specPowerMul =
+              1.0 + (modulation.peakSpecularPowerMul - 1.0) * upT;
+          } else {
+            const downT = Math.max(
+              0,
+              Math.min(1, (nowMs - modulation.peakTimeMs) / Math.max(1, modulation.decayMs))
+            );
+            const e = easeOutExpo01(downT);
+            specIntensityMul =
+              modulation.peakSpecularIntensityMul
+              + (1.0 - modulation.peakSpecularIntensityMul) * e;
+            specPowerMul =
+              modulation.peakSpecularPowerMul
+              + (1.0 - modulation.peakSpecularPowerMul) * e;
+            if (downT >= 1.0) clearSpecularModulationState = true;
+          }
+        }
         const spin = scene.specularSpin;
         if (spin && spin.cellId === c.id) {
           const elapsed = performance.now() - spin.startTimeMs;
@@ -219,6 +319,8 @@ export function createGridShaderSketch(
           }
         }
         const [specX, specY] = normalize2(specularXY[0], specularXY[1]);
+        sh.setUniform("uSpecularPower", gp.specularPower * specPowerMul);
+        sh.setUniform("uSpecularIntensity", gp.specularIntensity * specIntensityMul);
         sh.setUniform("uSpecularLightDir", [specX, specY, 0.85]);
         sh.setUniform("uCellRect", [c.x, c.y, c.w, c.h]);
         // p5 calls fillShader.unbindShader() after every retained draw, which resets all sampler
@@ -234,6 +336,23 @@ export function createGridShaderSketch(
         );
         p.plane(c.w, c.h);
         p.pop();
+      }
+      if (clearRimReleaseState || clearSpecularModulationState) {
+        dataRef.current = {
+          ...scene,
+          ...(clearRimReleaseState
+            ? {
+              rimReleaseCellId: null,
+              rimReleaseStartTimeMs: null,
+              rimReleaseFromMul: null,
+              rimReleaseMode: null,
+              rimShortPulseRampMs: null,
+            }
+            : {}),
+          ...(clearSpecularModulationState
+            ? { specularModulation: null }
+            : {}),
+        };
       }
       p.resetShader();
     };

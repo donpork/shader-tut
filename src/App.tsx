@@ -50,11 +50,20 @@ function App() {
   const dataRef = useRef<SceneData>({
     lightPos: { x: 0, y: 0 },
     pointerOverSurface: false,
+    rimHoldPointerDown: false,
+    rimHoldCellId: null,
+    rimHoldStartTimeMs: null,
+    rimReleaseCellId: null,
+    rimReleaseStartTimeMs: null,
+    rimReleaseFromMul: null,
+    rimReleaseMode: null,
+    rimShortPulseRampMs: null,
     cellRects: [],
     containerRects: [],
     cellLabels: initialLabels,
     glassParams: GLASS_DEFAULTS,
     specularSpin: null,
+    specularModulation: null,
   });
   const [cols, setCols] = useState(4);
   const [rows, setRows] = useState(4);

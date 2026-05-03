@@ -69,16 +69,44 @@ export type SpecularSpinState = {
   startSpecDirY: number;
 };
 
+/** Click-triggered one-shot modulation envelope for spec params; independent from orbit direction timing. */
+export type SpecularModulationState = {
+  cellId: string;
+  startTimeMs: number;
+  peakTimeMs: number;
+  decayMs: number;
+  peakSpecularIntensityMul: number;
+  peakSpecularPowerMul: number;
+};
+
 export type SceneData = {
   /** Screen space, origin top-left of the scene (canvas) */
   lightPos: { x: number; y: number };
   /** True while the pointer is inside a cell-surface hit region (for bgLayer cursor reflection). */
   pointerOverSurface: boolean;
+  /** True while left pointer button is held down on a cell surface. */
+  rimHoldPointerDown: boolean;
+  /** Active cell id for rim hold timing. */
+  rimHoldCellId: string | null;
+  /** performance.now() start time for active rim hold; null when inactive. */
+  rimHoldStartTimeMs: number | null;
+  /** Cell id currently decaying rim hold after release; null when inactive. */
+  rimReleaseCellId: string | null;
+  /** performance.now() release start time for rim decay; null when inactive. */
+  rimReleaseStartTimeMs: number | null;
+  /** Rim multiplier at release start (decays back to 1x). */
+  rimReleaseFromMul: number | null;
+  /** Release path mode: long-hold decay or short-click pulse+decay. */
+  rimReleaseMode: "hold" | "shortClick" | null;
+  /** Ramp-up duration for short-click pulse before decay starts. */
+  rimShortPulseRampMs: number | null;
   cellRects: CellRect[];
   containerRects: CellRect[];
   cellLabels: string[][];
   glassParams: GlassParams;
   /** When set, that cell’s spec direction rotates once from start direction; sketch clears when done. */
   specularSpin: SpecularSpinState | null;
+  /** When set, that cell’s spec params follow a time envelope (rise to peak, then decay), independent of spin direction. */
+  specularModulation: SpecularModulationState | null;
 };
 

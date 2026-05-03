@@ -29,6 +29,16 @@ const MIN_ROW_PX = 72;
 const MAX_TRACK_FRACTION = 0.5;
 /** One full specular rotation in the shader after a cell surface click. */
 const SPECULAR_SPIN_DURATION_MS = 350;
+const SPECULAR_MODULATION_DECAY_MS = 500;
+const RIM_HOLD_RAMP_MS = 1500;
+const RIM_SHORT_CLICK_THRESHOLD_MS = 150;
+const RIM_SHORT_CLICK_RAMP_MS = 100;
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  if (edge1 <= edge0) return x >= edge1 ? 1 : 0;
+  const u = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return u * u * (3 - 2 * u);
+}
 
 function makeUniformFracs(n: number): number[] {
   const f = 1 / Math.max(1, n);
@@ -462,6 +472,41 @@ export function ResizableGridOverlay({
     };
   };
 
+  const clearRimHold = useCallback(() => {
+    const scene = dataRef.current;
+    if (!scene.rimHoldPointerDown) return;
+    const nowMs = performance.now();
+    const elapsedMs =
+      scene.rimHoldStartTimeMs !== null
+        ? Math.max(0, nowMs - scene.rimHoldStartTimeMs)
+        : 0;
+    const holdMul = 1.0 + 3.0 * smoothstep(0, RIM_HOLD_RAMP_MS, elapsedMs);
+    const isShortClick = elapsedMs < RIM_SHORT_CLICK_THRESHOLD_MS;
+    dataRef.current = {
+      ...scene,
+      rimHoldPointerDown: false,
+      rimReleaseCellId: scene.rimHoldCellId,
+      rimReleaseStartTimeMs: nowMs,
+      rimReleaseFromMul: isShortClick ? 4.0 : holdMul,
+      rimReleaseMode: isShortClick ? "shortClick" : "hold",
+      rimShortPulseRampMs: isShortClick ? RIM_SHORT_CLICK_RAMP_MS : null,
+      rimHoldStartTimeMs: null,
+      rimHoldCellId: null,
+    };
+  }, [dataRef]);
+
+  useEffect(() => {
+    const onPointerEnd = () => {
+      clearRimHold();
+    };
+    window.addEventListener("pointerup", onPointerEnd, true);
+    window.addEventListener("pointercancel", onPointerEnd, true);
+    return () => {
+      window.removeEventListener("pointerup", onPointerEnd, true);
+      window.removeEventListener("pointercancel", onPointerEnd, true);
+    };
+  }, [clearRimHold]);
+
   const onCellPointerDown =
     (row: number, col: number) => (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
@@ -499,14 +544,32 @@ export function ResizableGridOverlay({
         ny /= len;
       }
       e.preventDefault();
+      const scene = dataRef.current;
+      const nowMs = performance.now();
       dataRef.current = {
-        ...dataRef.current,
+        ...scene,
+        rimHoldPointerDown: true,
+        rimHoldCellId: cr.id,
+        rimHoldStartTimeMs: nowMs,
+        rimReleaseCellId: null,
+        rimReleaseStartTimeMs: null,
+        rimReleaseFromMul: null,
+        rimReleaseMode: null,
+        rimShortPulseRampMs: null,
         specularSpin: {
           cellId: cr.id,
-          startTimeMs: performance.now(),
+          startTimeMs: nowMs,
           durationMs: SPECULAR_SPIN_DURATION_MS,
           startSpecDirX: nx,
           startSpecDirY: ny,
+        },
+        specularModulation: {
+          cellId: cr.id,
+          startTimeMs: nowMs,
+          peakTimeMs: nowMs + SPECULAR_SPIN_DURATION_MS * 0.5,
+          decayMs: SPECULAR_MODULATION_DECAY_MS,
+          peakSpecularIntensityMul: 3.0,
+          peakSpecularPowerMul: 0.5,
         },
       };
     };
