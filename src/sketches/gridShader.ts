@@ -6,6 +6,18 @@ import frag from "../shaders/cell.frag?raw";
 import cubeStripUrl from "../assets/StandardCubeMap.png";
 import cursorImgUrl from "../assets/cursor.svg";
 
+const LABEL_BASE_SIZE = 16;
+/** Alpha at edge (no hover). Max is 255. */
+const LABEL_BASE_ALPHA = 205;
+/** How much alpha ramps up at cell center (additive at hoverT=1: base + boost caps at 255). */
+const LABEL_HOVER_ALPHA_BOOST = 50;
+/** Smallest text scale during rim-hold / click pinch (90%). */
+const LABEL_SCALE_MIN = 0.9;
+/** Text shrink completes over this duration on mouse-down hold. */
+const LABEL_HOLD_RAMP_MS = 500;
+/** Matches short-click stage B decay in rim block. */
+const LABEL_SHORT_CLICK_DECAY_MS = 1000;
+
 /** GLSL-style smoothstep(edge0, edge1, x). */
 function smoothstep(edge0: number, edge1: number, x: number): number {
   if (edge1 <= edge0) return x >= edge1 ? 1 : 0;
@@ -50,6 +62,53 @@ function easeOutExpo01(t: number): number {
 }
 
 /**
+ * Text scale while pointer is down (hold) or in rim release animation (click vs hold),
+ * inverted relative to rim intensity: text shrinks as rim grows.
+ * Mirrors the branch structure in p.draw() for rimHoldMul.
+ */
+function labelScaleMulForCell(d: SceneData, cellId: string): number {
+  if (
+    d.rimHoldPointerDown &&
+    d.rimHoldCellId === cellId &&
+    d.rimHoldStartTimeMs !== null
+  ) {
+    const elapsedMs = Math.max(0, performance.now() - d.rimHoldStartTimeMs);
+    const rampT = smoothstep(0, LABEL_HOLD_RAMP_MS, elapsedMs);
+    return 1.0 + (LABEL_SCALE_MIN - 1.0) * rampT;
+  }
+  if (
+    d.rimReleaseCellId === cellId &&
+    d.rimReleaseStartTimeMs !== null &&
+    d.rimReleaseFromMul !== null &&
+    d.rimReleaseMode !== null
+  ) {
+    const releaseElapsedMs = Math.max(
+      0,
+      performance.now() - d.rimReleaseStartTimeMs
+    );
+    if (d.rimReleaseMode === "shortClick") {
+      const rampMs = Math.max(1, d.rimShortPulseRampMs ?? 100);
+      if (releaseElapsedMs <= rampMs) {
+        const trUp = Math.max(0, Math.min(1, releaseElapsedMs / rampMs));
+        return 1.0 + (LABEL_SCALE_MIN - 1.0) * easeOutExpo01(trUp);
+      }
+      const trDown = Math.max(
+        0,
+        Math.min(1, (releaseElapsedMs - rampMs) / LABEL_SHORT_CLICK_DECAY_MS)
+      );
+      const e = easeOutExpo01(trDown);
+      return LABEL_SCALE_MIN + (1.0 - LABEL_SCALE_MIN) * e;
+    }
+    const tr = Math.max(0, Math.min(1, releaseElapsedMs / 1000));
+    const e = easeOutExpo01(tr);
+    const s0 = Math.min(1, Math.max(0, (d.rimReleaseFromMul - 1.0) / 3.0));
+    const startMul = 1.0 + (LABEL_SCALE_MIN - 1.0) * s0;
+    return startMul + (1.0 - startMul) * e;
+  }
+  return 1.0;
+}
+
+/**
  * Instance-mode sketch for one WEBGL canvas. draw() reads dataRef; React writes it.
  * Host is top-left / Y-down, matching the shader’s gl_FragCoord fix.
  */
@@ -77,14 +136,25 @@ export function createGridShaderSketch(
       const d = dataRef.current;
       bgLayer.clear();
       bgLayer.noStroke();
-      bgLayer.fill(10, 12, 18, 160);
+      bgLayer.fill(0, 0, 0, 160);
       bgLayer.rect(0, 0, bgLayer.width, bgLayer.height);
       bgLayer.textAlign(p.CENTER, p.CENTER);
-      bgLayer.textSize(16);
+      const px = d.lightPos.x;
+      const py = d.lightPos.y;
       for (let i = 0; i < d.containerRects.length; i += 1) {
         const c = d.containerRects[i]!;
         const label = d.cellLabels[c.id] ?? c.id;
-        bgLayer.fill(234, 244, 255, 225);
+
+        // Hover proximity: edge -> center ramp (same signal as keyLight/envReflection).
+        const dMax = Math.min(c.w, c.h) * 0.5;
+        const dSigned = signedDepthToCell(px, py, c);
+        const hoverT = dMax > 1e-6 ? smoothstep(0, dMax, Math.max(dSigned, 0)) : 1;
+        const labelAlpha = Math.min(LABEL_BASE_ALPHA + Math.round(hoverT * LABEL_HOVER_ALPHA_BOOST), 255);
+
+        const sizeMul = labelScaleMulForCell(d, c.id);
+
+        bgLayer.textSize(LABEL_BASE_SIZE * sizeMul);
+        bgLayer.fill(234, 244, 255, labelAlpha);
         bgLayer.text(label, c.x + c.w * 0.5, c.y + c.h * 0.5);
       }
       if (d.pointerOverSurface && cursorImg) {
@@ -157,7 +227,7 @@ export function createGridShaderSketch(
         bgLayer.resizeCanvas(p.width, p.height);
       }
       drawBackgroundLayer();
-      p.background(10, 12, 18);
+      p.background(0, 0, 0);
 
       if (!scene.containerRects.length) return;
       scene = dataRef.current;
@@ -181,9 +251,7 @@ export function createGridShaderSketch(
       sh.setUniform("uPlateau", gp.plateau);
       sh.setUniform("uRefractionStrength", gp.refractionStrength);
       sh.setUniform("uEdgeSoftness", gp.edgeSoftness);
-      sh.setUniform("uDispersionHueShift", gp.dispersionHueShift);
       sh.setUniform("uDispersionSaturation", gp.dispersionSaturation);
-      sh.setUniform("uDispersionSpread", gp.dispersionSpread);
       sh.setUniform("uDispersionSharpness", gp.dispersionSharpness);
       sh.setUniform("uDispersionFocus", gp.dispersionFocus);
       sh.setUniform("uBevelEnabled", gp.bevelEnabled ? 1 : 0);
@@ -195,6 +263,8 @@ export function createGridShaderSketch(
       sh.setUniform("uBoxLightSoftness", gp.boxLightSoftness);
       sh.setUniform("uBoxLightSize", gp.boxLightSize);
       sh.setUniform("uBoxLightPos", gp.boxLightPosXY);
+      sh.setUniform("uSpecularOnly", 0);
+      sh.setUniform("uGlowScale", 0.0);
       let clearRimReleaseState = false;
       let clearSpecularModulationState = false;
       for (let i = 0; i < scene.containerRects.length; i += 1) {
@@ -211,8 +281,8 @@ export function createGridShaderSketch(
         const keyLightIntensity = gp.keyLightIntensity * (1.0 + t * 3.0);
         sh.setUniform("uKeyLightIntensity", keyLightIntensity);
         // Match center-hover response with key light: edges keep the base env reflection,
-        // center ramps to 1.5x (0.4 -> 0.6 with default settings).
-        const envReflection = gp.envReflection * (1.0 + t * 0.5);
+        // center ramps to 2.0x (0.4 -> 0.8 with default settings).
+        const envReflection = gp.envReflection * (1.0 + t);
         sh.setUniform("uEnvReflection", envReflection);
         let rimHoldMul = 1.0;
         if (
@@ -259,6 +329,9 @@ export function createGridShaderSketch(
         let specularXY: [number, number] = gp.specularLightXY;
         let specIntensityMul = 1.0;
         let specPowerMul = 1.0;
+        let dispersionHueShiftMul = 1.0;
+        let dispersionSpreadMul = 1.0;
+        let specDispersionAmountMul = 1.0;
         const modulation = scene.specularModulation;
         if (modulation && modulation.cellId === c.id) {
           const nowMs = performance.now();
@@ -269,6 +342,12 @@ export function createGridShaderSketch(
               1.0 + (modulation.peakSpecularIntensityMul - 1.0) * upT;
             specPowerMul =
               1.0 + (modulation.peakSpecularPowerMul - 1.0) * upT;
+            dispersionHueShiftMul =
+              1.0 + (modulation.peakDispersionHueShiftMul - 1.0) * upT;
+            dispersionSpreadMul =
+              1.0 + (modulation.peakDispersionSpreadMul - 1.0) * upT;
+            specDispersionAmountMul =
+              1.0 + (modulation.peakSpecDispersionAmountMul - 1.0) * upT;
           } else {
             const downT = Math.max(
               0,
@@ -281,6 +360,15 @@ export function createGridShaderSketch(
             specPowerMul =
               modulation.peakSpecularPowerMul
               + (1.0 - modulation.peakSpecularPowerMul) * e;
+            dispersionHueShiftMul =
+              modulation.peakDispersionHueShiftMul
+              + (1.0 - modulation.peakDispersionHueShiftMul) * e;
+            dispersionSpreadMul =
+              modulation.peakDispersionSpreadMul
+              + (1.0 - modulation.peakDispersionSpreadMul) * e;
+            specDispersionAmountMul =
+              modulation.peakSpecDispersionAmountMul
+              + (1.0 - modulation.peakSpecDispersionAmountMul) * e;
             if (downT >= 1.0) clearSpecularModulationState = true;
           }
         }
@@ -319,6 +407,9 @@ export function createGridShaderSketch(
         sh.setUniform("uSpecularPower", gp.specularPower * specPowerMul);
         sh.setUniform("uSpecularIntensity", gp.specularIntensity * specIntensityMul);
         sh.setUniform("uSpecularLightDir", [specX, specY, 0.85]);
+        sh.setUniform("uDispersionHueShift", gp.dispersionHueShift * dispersionHueShiftMul);
+        sh.setUniform("uDispersionSpread", gp.dispersionSpread * dispersionSpreadMul);
+        sh.setUniform("uSpecDispersionAmount", gp.specDispersionAmount * specDispersionAmountMul);
         sh.setUniform("uCellRect", [c.x, c.y, c.w, c.h]);
         // p5 calls fillShader.unbindShader() after every retained draw, which resets all sampler
         // uniforms to an empty texture (see p5.Shader.unbindTextures). Re-bind per cell so every
@@ -351,6 +442,35 @@ export function createGridShaderSketch(
             : {}),
         };
       }
+      p.resetShader();
+
+      // Additive glow pass: redraw each cell with SRC_ALPHA,ONE blend to accumulate specular light.
+      // All per-frame uniforms set above survive resetShader on the shader object; only per-cell
+      // values (cellRect, specDir, dispersion, specOnly flag) need re-binding.
+      const gl = (p as unknown as { drawingContext: WebGLRenderingContext }).drawingContext;
+      p.shader(sh);
+      sh.setUniform("uSpecularOnly", 1);
+      sh.setUniform("uGlowScale", 0.6);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      for (let i = 0; i < scene.containerRects.length; i += 1) {
+        const c = scene.containerRects[i]!;
+        sh.setUniform("uCellRect", [c.x, c.y, c.w, c.h]);
+        sh.setUniform("uBackground", bgLayer);
+        sh.setUniform("uCubeStrip", cubeStrip ?? bgLayer);
+        // Reuse last-computed specular direction for this cell.
+        const lastXY = lastSpecularXY.get(c.id) ?? gp.specularLightXY;
+        const [specX, specY] = normalize2(lastXY[0], lastXY[1]);
+        sh.setUniform("uSpecularLightDir", [specX, specY, 0.85]);
+        p.push();
+        p.translate(
+          c.x + c.w * 0.5 - p.width * 0.5,
+          c.y + c.h * 0.5 - p.height * 0.5,
+          0
+        );
+        p.plane(c.w, c.h);
+        p.pop();
+      }
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       p.resetShader();
     };
   };

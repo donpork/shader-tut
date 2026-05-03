@@ -3,7 +3,7 @@ import { ResizableGridOverlay } from "./components/ResizableGridOverlay";
 import { makeLabelsFromPreset } from "./lib/cellLabelGrid";
 import {
   ALL_PRESETS,
-  PRESET_SEQUENTIAL,
+  PRESET_FIXED,
   type LayoutPreset,
 } from "./lib/layoutPreset";
 import type { GlassParams, SceneData } from "./lib/sceneData";
@@ -18,16 +18,17 @@ const GLASS_DEFAULTS: GlassParams = {
   specularIntensity: 2.0,
   rimPower: 0.3,
   rimIntensity: 0.3,
-  flatPow: 4.0,
+  flatPow: 5.0,
   plateau: 0.1,
   refractionStrength: 4.0,
-  edgeSoftness: 4.0,
+  edgeSoftness: 2.0,
   dispersionHueShift: 0.2,
   dispersionSaturation: 1.0,
   dispersionSpread: 0.25,
   dispersionSharpness: 3.0,
   dispersionFocus: 0.3,
-  envReflection: 0.4,
+  specDispersionAmount: 0.45,
+  envReflection: 0.5,
   boxLightEnabled: false,
   boxLightIntensity: 0.5,
   boxLightSoftness: 0.8,
@@ -44,7 +45,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function App() {
-  const initialPreset = PRESET_SEQUENTIAL;
+  const initialPreset = PRESET_FIXED;
   const initialLabels = makeLabelsFromPreset(initialPreset);
   const dataRef = useRef<SceneData>({
     lightPos: { x: 0, y: 0 },
@@ -159,6 +160,9 @@ function App() {
         }
         if (key === "dispersionFocus") {
           return { ...prev, dispersionFocus: clamp(n, 0.0, 1.0) };
+        }
+        if (key === "specDispersionAmount") {
+          return { ...prev, specDispersionAmount: clamp(n, 0.0, 1.0) };
         }
         if (key === "envReflection") {
           return { ...prev, envReflection: clamp(n, 0.0, 3.0) };
@@ -652,6 +656,20 @@ function App() {
                 max="1"
                 value={glassParams.dispersionFocus}
                 onChange={onGlassParam("dispersionFocus")}
+              />
+            </label>
+            <label
+              className="app__label"
+              title="How much the existing fresnel dispersion color tints the specular highlight."
+            >
+              Spec disp amt
+              <input
+                type="number"
+                step="0.05"
+                min="0"
+                max="1"
+                value={glassParams.specDispersionAmount}
+                onChange={onGlassParam("specDispersionAmount")}
               />
             </label>
             <label

@@ -310,14 +310,11 @@
 }
 
 /* Inside a micro sub-cell, the surface flexes without its own minimum so DOM render
-   matches the JS subdivision. Drop the 1px box-shadow: the WebGL shader already paints
-   each sub-cell's pill outline, and a parallel CSS outline only guarantees misalignment
-   at the gap (different anti-aliasing, subpixel rounding) and can visually overlap into
-   the 2px gap between sub-cells. */
+   matches the JS subdivision. The 1px inset box-shadow from .resizable-grid__cell-surface
+   is intentionally kept so sub-cells match the stroke of all other cells. */
 .resizable-grid__micro-cell .resizable-grid__cell-surface {
   min-width: 0;
   min-height: 0;
-  box-shadow: none;
 }
 
 .resizable-grid__debug-overlay {

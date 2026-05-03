@@ -42,6 +42,8 @@ export type GlassParams = {
    * 1 = tighter (mostly at glancing silhouette).
    */
   dispersionFocus: number;
+  /** How strongly specular is tinted by fresnel-driven dispersion color [0..1]. */
+  specDispersionAmount: number;
   /** Scales cubemap reflection term (still Fresnel-weighted inside the shader). */
   envReflection: number;
   boxLightEnabled: boolean;
@@ -77,6 +79,12 @@ export type SpecularModulationState = {
   decayMs: number;
   peakSpecularIntensityMul: number;
   peakSpecularPowerMul: number;
+  /** Multiplier on dispersionHueShift at peak (smears hue during orbit). */
+  peakDispersionHueShiftMul: number;
+  /** Multiplier on dispersionSpread at peak (widens spectral split during orbit). */
+  peakDispersionSpreadMul: number;
+  /** Multiplier on specDispersionAmount at peak (stronger chroma on spec during orbit). */
+  peakSpecDispersionAmountMul: number;
 };
 
 export type SceneData = {

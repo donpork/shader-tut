@@ -30,7 +30,7 @@ const MAX_TRACK_FRACTION = 0.5;
 const MICRO_GAP_PX = 2;
 /** One full specular rotation in the shader after a cell surface click. */
 const SPECULAR_SPIN_DURATION_MS = 350;
-const SPECULAR_MODULATION_DECAY_MS = 500;
+const SPECULAR_MODULATION_DECAY_MS = 1000;
 const RIM_HOLD_RAMP_MS = 1500;
 const RIM_SHORT_CLICK_THRESHOLD_MS = 150;
 const RIM_SHORT_CLICK_RAMP_MS = 100;
@@ -662,6 +662,9 @@ export function ResizableGridOverlay({
           decayMs: SPECULAR_MODULATION_DECAY_MS,
           peakSpecularIntensityMul: 3.0,
           peakSpecularPowerMul: 0.5,
+          peakDispersionHueShiftMul: 1.6,
+          peakDispersionSpreadMul: 1.8,
+          peakSpecDispersionAmountMul: 2.2,
         },
       };
     };

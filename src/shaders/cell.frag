@@ -30,7 +30,10 @@ uniform float uDispersionSaturation;
 uniform float uDispersionSpread;
 uniform float uDispersionSharpness;
 uniform float uDispersionFocus;
+uniform float uSpecDispersionAmount;
 uniform float uEnvReflection;
+uniform float uSpecularOnly;
+uniform float uGlowScale;
 
 varying vec2 vTexCoord;
 
@@ -203,16 +206,28 @@ void main() {
 
   vec3 L_base = normalize(uLightDir);
   vec3 L_spec = normalize(uSpecularLightDir);
-  vec3 H = normalize(L_spec + V);
-
-  // Blinn-Phong specular: keep original artistic control while respecting the shape-aware normal field.
-  float nDotH = max(dot(N, H), 0.0);
-  float spec = pow(nDotH, max(uSpecularPower, 1.0)) * max(uSpecularIntensity, 0.0);
-  float specFace = smoothstep(0.0, 0.16, N.z);
-  spec *= specFace;
 
   float nDotV = max(dot(N, V), 0.0);
   float fresnel = pow(1.0 - nDotV, max(uRimPower, 0.01));
+
+  // Fresnel-driven dispersion weight; computed before spec so it can scale perturbation.
+  float focus = clamp(uDispersionFocus, 0.0, 1.0);
+  float dLow = mix(0.06, 0.42, focus);
+  float dHigh = mix(0.42, 0.92, focus);
+  float dispersionWeight = smoothstep(dLow, dHigh, fresnel);
+
+  // Per-channel Blinn-Phong lobes with motion-tangent offsets.
+  // R = warm (head) side, B = cool (tail) side, G = unperturbed center.
+  // White center emerges from lobe overlap; opposite chroma on head vs tail.
+  vec3 specTangent = normalize(vec3(-uSpecularLightDir.y, uSpecularLightDir.x, 1e-5));
+  float perturbMag = 0.25 * clamp(uSpecDispersionAmount, 0.0, 1.0) * dispersionWeight;
+  float specPow = max(uSpecularPower, 1.0);
+  float specInt = max(uSpecularIntensity, 0.0);
+  float specFace = smoothstep(0.0, 0.16, N.z);
+  float specG = pow(max(dot(N, normalize(L_spec + V)), 0.0), specPow) * specInt * specFace;
+  float specR = pow(max(dot(N, normalize(L_spec + specTangent * perturbMag + V)), 0.0), specPow) * specInt * specFace;
+  float specB = pow(max(dot(N, normalize(L_spec - specTangent * perturbMag + V)), 0.0), specPow) * specInt * specFace;
+  float spec = specG;
 
   // More realistic: subtle center distortion, stronger toward grazing angles.
   float refractPx = uRefractionStrength * (2.0 + 8.0 * fresnel);
@@ -220,18 +235,14 @@ void main() {
   vec2 refractUV = clamp(sceneUV + refractOffset, 0.001, 0.999);
   vec3 singleSampleColor = texture2D(uBackground, refractUV).rgb;
   // Extra spectral blur along silhouette (7 bg taps); blend weight follows Fresnel.
-  float focus = clamp(uDispersionFocus, 0.0, 1.0);
-  float dLow = mix(0.06, 0.42, focus);
-  float dHigh = mix(0.42, 0.92, focus);
-  float dispersionWeight = smoothstep(dLow, dHigh, fresnel);
   float dispPx = refractPx * 0.45 * clamp(uDispersionSpread, 0.25, 3.0);
   vec2 dispDir = normalize(N.xy + vec2(1e-6));
   vec2 dispStep = (dispDir * dispPx) / max(uResolution, vec2(1.0));
   vec2 uvDisp = sceneUV + refractOffset;
   vec3 spectralBg =
     spectralDispersionAccum(uvDisp, dispStep, uDispersionSharpness);
-  float lum = dot(spectralBg, vec3(0.2126, 0.7152, 0.0722));
-  spectralBg = mix(vec3(lum), spectralBg, clamp(uDispersionSaturation, 0.0, 1.0));
+  float spectralLum = dot(spectralBg, vec3(0.2126, 0.7152, 0.0722));
+  spectralBg = mix(vec3(spectralLum), spectralBg, clamp(uDispersionSaturation, 0.0, 1.0));
   spectralBg = rotateHueOnGrayAxis(spectralBg, uDispersionHueShift);
   vec3 refracted = mix(singleSampleColor, spectralBg, dispersionWeight);
   // Global-space cubemap lookup: all cells use the same world-space env.
@@ -240,7 +251,15 @@ void main() {
   vec3 worldR = reflect(-worldV, N);
   vec3 envColor = sampleCubeStrip(worldR);
 
-  vec3 crescent = vec3(spec);
+  vec3 crescent = vec3(specR, specG, specB);
+
+  // Additive glow pass: output only the specular contribution scaled by uGlowScale.
+  // In the normal pass (uSpecularOnly == 0) this branch is skipped entirely.
+  if (uSpecularOnly > 0.5) {
+    float glowAlpha = clamp(dot(crescent, vec3(0.2126, 0.7152, 0.0722)) * mask * uGlowScale, 0.0, 1.0);
+    gl_FragColor = vec4(crescent * glowAlpha, glowAlpha);
+    return;
+  }
 
   float rimBand = smoothstep(0.52, 0.98, fresnel) * max(uRimIntensity, 0.0);
   vec3 rim = vec3(rimBand);
