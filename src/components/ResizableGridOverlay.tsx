@@ -29,7 +29,7 @@ const MAX_TRACK_FRACTION = 0.5;
 /** Must match `gap` on `.resizable-grid__micro-container` in ResizableGridOverlay.css. */
 const MICRO_GAP_PX = 2;
 /** One full specular rotation in the shader after a cell surface click. */
-const SPECULAR_SPIN_DURATION_MS = 350;
+const SPECULAR_SPIN_DURATION_MS = 500;
 const RIM_HOLD_RAMP_MS = 1500;
 const RIM_SHORT_CLICK_THRESHOLD_MS = 150;
 const RIM_SHORT_CLICK_RAMP_MS = 100;
@@ -649,7 +649,7 @@ export function ResizableGridOverlay({
       const cellSize = Math.sqrt(cr.w * cr.h);
       const sizeRatio = Math.max(0.5, Math.min(2.0, cellSize / Math.max(normalPx, 1)));
       const decayMs = Math.round(Math.max(1000, Math.min(4000, 2000 * sizeRatio)));
-      const orbitMs = Math.round(Math.min(500, SPECULAR_SPIN_DURATION_MS * sizeRatio));
+      const orbitMs = Math.round(Math.min(1000, SPECULAR_SPIN_DURATION_MS * sizeRatio));
       if (singleMode) {
         // Touch: activate hover immediately, defer orbit to pointerup.
         updateLightFromClient(e.clientX, e.clientY);
@@ -687,7 +687,8 @@ export function ResizableGridOverlay({
           specularModulation: {
             cellId: cr.id,
             startTimeMs: nowMs,
-            peakTimeMs: nowMs + orbitMs * 0.5,
+            durationMs: orbitMs,
+            peakPhase: 0.5,
             decayMs,
             peakSpecularIntensityMul: 3.0,
             peakSpecularPowerMul: 0.5,
@@ -717,7 +718,8 @@ export function ResizableGridOverlay({
           specularModulation: {
             cellId: p.cellId,
             startTimeMs: nowMs,
-            peakTimeMs: nowMs + p.orbitMs * 0.5,
+            durationMs: p.orbitMs,
+            peakPhase: 0.5,
             decayMs: p.decayMs,
             peakSpecularIntensityMul: 3.0,
             peakSpecularPowerMul: 0.5,

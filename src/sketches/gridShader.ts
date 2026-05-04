@@ -69,21 +69,23 @@ function signedDepthToCell(px: number, py: number, c: CellRect): number {
   );
 }
 
-/** Linear t∈[0,1] → eased phase∈[0,1], exponential ease-in-out (Penner). */
-function expoEaseInOut01(t: number): number {
+/** Linear t∈[0,1] → eased phase∈[0,1], exponential ease-out (Penner-style). */
+function expoEaseOut01(t: number): number {
   if (t <= 0) return 0;
   if (t >= 1) return 1;
-  if (t < 0.5) {
-    return Math.pow(2, 20 * t - 10) / 2;
-  }
-  return (2 - Math.pow(2, -20 * t + 10)) / 2;
+  return 1 - Math.pow(2, -10 * t);
+}
+
+/** Inverse of expoEaseOut01 for phase-locked peak time. */
+function invExpoEaseOut01(phase: number): number {
+  if (phase <= 0) return 0;
+  if (phase >= 1) return 1;
+  return -Math.log2(1 - phase) / 10;
 }
 
 /** Exponential ease-out 0..1 (fast start, slow end). */
 function easeOutExpo01(t: number): number {
-  if (t <= 0) return 0;
-  if (t >= 1) return 1;
-  return 1 - Math.pow(2, -10 * t);
+  return expoEaseOut01(t);
 }
 
 /**
@@ -403,12 +405,19 @@ export function createGridShaderSketch(
         let dispersionHueShiftMul = 1.0;
         let dispersionSpreadMul = 1.0;
         let specDispersionAmountMul = 1.0;
+        const nowMs = performance.now();
         const modulation = scene.specularModulation;
         if (modulation && modulation.cellId === c.id) {
-          const nowMs = performance.now();
-          if (nowMs <= modulation.peakTimeMs) {
-            const upDen = Math.max(1, modulation.peakTimeMs - modulation.startTimeMs);
-            const upT = Math.max(0, Math.min(1, (nowMs - modulation.startTimeMs) / upDen));
+          const tLin = Math.max(
+            0,
+            Math.min(1, (nowMs - modulation.startTimeMs) / Math.max(1, modulation.durationMs))
+          );
+          const phase = expoEaseOut01(tLin);
+          const peakPhase = Math.max(1e-3, Math.min(0.999, modulation.peakPhase));
+          const peakTLin = invExpoEaseOut01(peakPhase);
+          const peakTimeMs = modulation.startTimeMs + modulation.durationMs * peakTLin;
+          if (nowMs <= peakTimeMs) {
+            const upT = Math.max(0, Math.min(1, phase / peakPhase));
             specIntensityMul =
               1.0 + (modulation.peakSpecularIntensityMul - 1.0) * upT;
             specPowerMul =
@@ -422,7 +431,7 @@ export function createGridShaderSketch(
           } else {
             const downT = Math.max(
               0,
-              Math.min(1, (nowMs - modulation.peakTimeMs) / Math.max(1, modulation.decayMs))
+              Math.min(1, (nowMs - peakTimeMs) / Math.max(1, modulation.decayMs))
             );
             const e = easeOutExpo01(downT);
             specIntensityMul =
@@ -445,9 +454,9 @@ export function createGridShaderSketch(
         }
         const spin = scene.specularSpin;
         if (spin && spin.cellId === c.id) {
-          const elapsed = performance.now() - spin.startTimeMs;
+          const elapsed = nowMs - spin.startTimeMs;
           const tLin = Math.min(1.0, elapsed / spin.durationMs);
-          const phase = expoEaseInOut01(tLin);
+          const phase = expoEaseOut01(tLin);
           const theta = phase * Math.PI * 2.0;
           const cosT = Math.cos(theta);
           const sinT = Math.sin(theta);

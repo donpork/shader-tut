@@ -71,11 +71,15 @@ export type SpecularSpinState = {
   startSpecDirY: number;
 };
 
-/** Click-triggered one-shot modulation envelope for spec params; independent from orbit direction timing. */
+/** Click-triggered one-shot modulation envelope evaluated from eased orbit phase. */
 export type SpecularModulationState = {
   cellId: string;
   startTimeMs: number;
-  peakTimeMs: number;
+  /** Total modulation span in ms; should match spin duration for phase-locked behavior. */
+  durationMs: number;
+  /** Eased phase [0..1] where modulation reaches peak; 0.5 means half-turn in angle. */
+  peakPhase: number;
+  /** Decay duration after peak (ms), preserving long-tail behavior independent of orbit duration. */
   decayMs: number;
   peakSpecularIntensityMul: number;
   peakSpecularPowerMul: number;
@@ -115,7 +119,7 @@ export type SceneData = {
   glassParams: GlassParams;
   /** When set, that cell’s spec direction rotates once from start direction; sketch clears when done. */
   specularSpin: SpecularSpinState | null;
-  /** When set, that cell’s spec params follow a time envelope (rise to peak, then decay), independent of spin direction. */
+  /** When set, that cell’s spec params follow a phase envelope (rise to peak, then decay). */
   specularModulation: SpecularModulationState | null;
 };
 
