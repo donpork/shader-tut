@@ -258,7 +258,7 @@ function App() {
     <div className="app">
       <header className="app__header">
         <div className="app__title-row">
-          <h1>shader-tut</h1>
+          <h1>glass</h1>
         </div>
         <div
           className="app__filter-chips"

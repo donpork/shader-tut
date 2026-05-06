@@ -1,9 +1,9 @@
 ---
-description: shader-tut — React grid, single p5 WEBGL canvas, shader lighting
+description: glass — React grid, single p5 WEBGL canvas, shader lighting
 alwaysApply: true
 ---
 
-# shader-tut architecture
+# glass architecture
 
 - **React** owns the **grid** (CSS) and all **pointer** logic: down, move, up, optional capture during drag, and `pointerleave` as needed. Do not put grid hit-testing in p5.
 - There is **exactly one p5 instance**: mount in `useEffect`, call `p.remove()` in the cleanup to avoid duplicate canvases on HMR.

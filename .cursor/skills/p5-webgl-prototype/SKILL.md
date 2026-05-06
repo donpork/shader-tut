@@ -1,13 +1,13 @@
 ---
 name: p5-webgl-prototype
 description: >-
-  Work on shader-tut’s React + p5 WEBGL stack: instance mode, ref bridge (no
+  Work on glass’s React + p5 WEBGL stack: instance mode, ref bridge (no
   per-frame setState), one canvas and cleanup, grid overlay, shaders, and dev
   workflow. Use when editing p5, shaders, the grid, pointer data to WebGL, or
   HMR/cleanup in this repo.
 ---
 
-# p5 WebGL prototype (shader-tut)
+# p5 WebGL prototype (glass)
 
 ## Rule source of truth
 
